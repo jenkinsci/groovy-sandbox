@@ -69,6 +69,13 @@ class SecureTransformer extends CompilationCustomizer {
             }
             
             if (exp instanceof StaticMethodCallExpression) {
+                /*
+                    Groovy doesn't use StaticMethodCallExpression as much as it could in compilation.
+                    For example, "Math.max(1,2)" results in a regular MethodCallExpression.
+
+                    Static import handling uses StaticMethodCallExpression, and so are some
+                    ASTTransformations like ToString,EqualsAndHashCode, etc.
+                 */
                 StaticMethodCallExpression call = exp;
                 return new StaticMethodCallExpression(
                         checkerClass,
