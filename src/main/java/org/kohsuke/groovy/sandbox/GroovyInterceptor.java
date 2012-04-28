@@ -22,7 +22,12 @@ public abstract class GroovyInterceptor {
     }
 
     /**
-     * Intercepts a static method call on some class, like "Class.forName(...)"
+     * Intercepts a static method call on some class, like "Class.forName(...)".
+     * 
+     * Note that Groovy doesn't clearly differentiate static method calls from instance method calls.
+     * If calls are determined to be static at compile-time, you get this method called, but
+     * method calls whose receivers are {@link Class} can invoke static methods, too
+     * (that is, {@code x=Integer.class;x.valueOf(5)} results in {@code onMethodCall(invoker,Integer.class,"valueOf",5)}
      */
     public Object onStaticCall(Invoker invoker, Class receiver, String method, Object... args) throws Throwable {
         return invoker.call(receiver,method,args);

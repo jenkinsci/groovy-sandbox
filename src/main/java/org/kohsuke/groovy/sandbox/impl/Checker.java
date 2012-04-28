@@ -158,7 +158,7 @@ public class Checker {
             return new ZeroArgInvokerChain() {
                 public Object call(Object receiver, String property) throws Throwable {
                     if (chain.hasNext())
-                        return chain.next().onGetProperty(this,receiver,property);
+                        return chain.next().onGetAttribute(this,receiver,property);
                     else
                         // according to AsmClassGenerator this is how the compiler maps it to
                         return ScriptBytecodeAdapter.getField(null,receiver,property);

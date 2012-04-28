@@ -12,6 +12,10 @@ public class ClassRecorder extends GroovyInterceptor {
     public String toString() {
         return buf.toString();
     }
+
+    public void reset() {
+        buf.setLength(0);
+    }
     
     private void format(String fmt, Object... args) {
         buf.append(String.format(fmt,args)).append('\n');
