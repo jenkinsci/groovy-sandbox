@@ -1,6 +1,8 @@
 package test
 
 import org.codehaus.groovy.runtime.callsite.CallSiteArray
+import org.codehaus.groovy.runtime.callsite.CallSite
+import org.codehaus.groovy.runtime.ScriptBytecodeAdapter
 
 /**
  *
@@ -39,20 +41,45 @@ class Checker {
 
                 So here we are faking it by creating a new CallSite object.
              */
-            /*TODO: specify the proper owner value*/
-            def names = new String[1]
-            names[0] = method.toString()
-            CallSiteArray csa = new CallSiteArray(Checker.class,names)
-            return csa.array[0].call(receiver,args)
+            return fakeCallSite(method.toString()).call(receiver,args)
         }
     }
 
     public static Object checkedStaticCall(Class receiver, String method, Object... args) {
         System.out.println("Static calling ${method} on ${receiver}");
 
+        return fakeCallSite(method).callStatic(receiver,args)
+    }
+
+    /*TODO: specify the proper owner value*/
+    private static CallSite fakeCallSite(String method) {
         def names = new String[1]
         names[0] = method
-        CallSiteArray csa = new CallSiteArray(Checker.class,names)
-        return csa.array[0].callStatic(receiver,args)
+        CallSiteArray csa = new CallSiteArray(Checker.class, names)
+        return csa.array[0]
+    }
+
+    public static Object checkedGetProperty(Object receiver, boolean safe, boolean spread, Object property) {
+        if (safe && receiver==null)     return null;
+        if (spread) {
+            return receiver.collect { checkedGetProperty(it,true,false,property) }
+        } else {
+            System.out.println("Get property ${property} on ${receiver}")
+// 1st try: do the same call site stuff
+//            return fakeCallSite(property.toString()).callGetProperty(receiver);
+
+            return ScriptBytecodeAdapter.getProperty(null,receiver,property.toString());
+        }
+    }
+
+    public static Object checkedGetAttribute(Object receiver, boolean safe, boolean spread, Object property) {
+        if (safe && receiver==null)     return null;
+        if (spread) {
+            return receiver.collect { checkedGetProperty(it,true,false,property) }
+        } else {
+            System.out.println("Get attribute ${property} on ${receiver}")
+            // according to AsmClassGenerator this is how the compiler maps it to
+            return ScriptBytecodeAdapter.getField(null,receiver,property.toString());
+        }
     }
 }

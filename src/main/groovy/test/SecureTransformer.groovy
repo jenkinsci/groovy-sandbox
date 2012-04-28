@@ -13,6 +13,9 @@ import org.codehaus.groovy.control.SourceUnit
 import org.codehaus.groovy.control.customizers.CompilationCustomizer
 import org.codehaus.groovy.ast.expr.TupleExpression
 import org.codehaus.groovy.ast.expr.ClassExpression
+import org.codehaus.groovy.ast.expr.PropertyExpression
+import javax.print.AttributeException
+import org.codehaus.groovy.ast.expr.AttributeExpression
 
 /**
  *
@@ -51,21 +54,22 @@ class SecureTransformer extends CompilationCustomizer {
                 return e.expressions*.transformExpression(this)
             return [e.transformExpression(this)];
         }
+        
+        Expression makeCheckedCall(String name, Collection<Expression> arguments) {
+            return new StaticMethodCallExpression(checkerClass,name,
+                new ArgumentListExpression(arguments as Expression[]))
+        }
     
         @Override
         Expression transform(Expression exp) {
             if (exp instanceof MethodCallExpression) {
                 MethodCallExpression call = exp;
-                return new StaticMethodCallExpression(
-                        checkerClass,
-                        "checkedCall",
-                        new ArgumentListExpression([
-                            transform(call.objectExpression),
-                            boolExp(call.safe),
-                            boolExp(call.spreadSafe),
-                            transform(call.method)
-                        ]+transformArguments(call.arguments))
-                )
+                return makeCheckedCall("checkedCall",[
+                        transform(call.objectExpression),
+                        boolExp(call.safe),
+                        boolExp(call.spreadSafe),
+                        transform(call.method)
+                    ]+transformArguments(call.arguments))
             }
             
             if (exp instanceof StaticMethodCallExpression) {
@@ -77,14 +81,34 @@ class SecureTransformer extends CompilationCustomizer {
                     ASTTransformations like ToString,EqualsAndHashCode, etc.
                  */
                 StaticMethodCallExpression call = exp;
-                return new StaticMethodCallExpression(
-                        checkerClass,
-                        "checkedStaticCall",
-                        new ArgumentListExpression([
-                                new ClassExpression(call.ownerType),
-                                new ConstantExpression(call.method)
-                        ]+transformArguments(call.arguments))
-                )
+                return makeCheckedCall("checkedStaticCall", [
+                            new ClassExpression(call.ownerType),
+                            new ConstantExpression(call.method)
+                    ]+transformArguments(call.arguments))
+            }
+
+            // we can't really intercept constructor call, since it has to be the first method
+            // call in a constructor.
+
+            // TODO: how does Groovy builds AST from "new String(...)"?
+
+            // TODO: add AttributeExpression
+            if (exp instanceof AttributeExpression) {
+                return makeCheckedCall("checkedGetAttribute", [
+                    transform(exp.objectExpression),
+                    boolExp(exp.safe),
+                    boolExp(exp.spreadSafe),
+                    transform(exp.property)
+                ])
+            }
+
+            if (exp instanceof PropertyExpression) {
+                return makeCheckedCall("checkedGetProperty", [
+                    transform(exp.objectExpression),
+                    boolExp(exp.safe),
+                    boolExp(exp.spreadSafe),
+                    transform(exp.property)
+                ])
             }
 
             return super.transform(exp)

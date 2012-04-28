@@ -37,5 +37,9 @@ class TheTest extends TestCase {
         assertEquals("foo".hashCode(),eval("'foo'.toString().hashCode()"))
         assertEquals(Math.max(1f,2f),eval("Math.max(1f,2f)"))
         assertEquals(Math.max(1f,2f),eval("import static java.lang.Math.*; max(1f,2f)"))
+        assertEquals("java.lang.String",eval("'foo'.class.name"))
+
+        // intercept field access
+        assertEquals(1,eval("new java.awt.Point(1,2).@x"))
     }
 }
