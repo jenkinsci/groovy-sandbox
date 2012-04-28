@@ -16,6 +16,10 @@ import org.codehaus.groovy.control.CompilePhase
 import org.codehaus.groovy.control.SourceUnit
 import org.codehaus.groovy.control.customizers.CompilationCustomizer
 import org.codehaus.groovy.ast.expr.ConstructorCallExpression
+import org.codehaus.groovy.ast.expr.BinaryExpression
+import org.codehaus.groovy.syntax.Types
+import org.codehaus.groovy.ast.expr.FieldExpression
+import org.codehaus.groovy.ast.expr.VariableExpression
 
 /**
  *
@@ -99,9 +103,6 @@ class SecureTransformer extends CompilationCustomizer {
                 }
             }
 
-            // TODO: how does Groovy builds AST from "new String(...)"?
-
-            // TODO: add AttributeExpression
             if (exp instanceof AttributeExpression) {
                 return makeCheckedCall("checkedGetAttribute", [
                     transform(exp.objectExpression),
@@ -118,6 +119,50 @@ class SecureTransformer extends CompilationCustomizer {
                     boolExp(exp.spreadSafe),
                     transform(exp.property)
                 ])
+            }
+
+            if (exp instanceof BinaryExpression) {
+                // this covers everything from a+b to a=b
+                if (exp.operation.type==Types.ASSIGN) {
+                    // TODO: there are whole bunch of other composite assignment operators like |=, +=, etc.
+
+                    // How we dispatch this depends on the type of left expression.
+                    // 
+                    // What can be LHS?
+                    // according to AsmClassGenerator, PropertyExpression, AttributeExpression, FieldExpression, VariableExpression
+
+                    Expression lhs = exp.leftExpression;
+                    if (lhs instanceof PropertyExpression) {
+                        def name = (lhs instanceof AttributeExpression) ? "checkedSetAttribute":"checkedSetProperty";
+                        return makeCheckedCall(name, [
+                                lhs.objectExpression,
+                                lhs.property,
+                                boolExp(lhs.safe),
+                                boolExp(lhs.spreadSafe),
+                                transform(exp.rightExpression)
+                        ])
+                    } else
+                    if (lhs instanceof FieldExpression) {
+                        // while javadoc of FieldExpression isn't very clear,
+                        // AsmClassGenerator maps this to GETSTATIC/SETSTATIC/GETFIELD/SETFIELD access.
+                        // not sure how we can intercept this, so skipping this for now
+                        return super.transform(exp);
+                    } else
+                    if (lhs instanceof VariableExpression) {
+                        // We don't care what sandboxed code does to itself until it starts interacting with outside world
+                        return super.transform(exp);
+                    } else
+                    if (lhs instanceof BinaryExpression) {
+                        if (lhs.operation.type==Types.LEFT_SQUARE_BRACKET) {// expression of the form "x[y] = z"
+                            return makeCheckedCall("checkedSetArray", [
+                                    transform(lhs.leftExpression),
+                                    transform(lhs.rightExpression),
+                                    transform(exp.rightExpression)
+                            ])
+                        }
+                    } else
+                        throw new AssertionError("Unexpected LHS of an assignment: ${lhs.class}")
+                }
             }
 
             return super.transform(exp)

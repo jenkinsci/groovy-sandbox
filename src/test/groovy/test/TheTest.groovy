@@ -1,8 +1,8 @@
 package test
 
+import java.awt.Point
 import junit.framework.TestCase
 import org.codehaus.groovy.control.CompilerConfiguration
-import org.codehaus.groovy.control.MultipleCompilationErrorsException
 
 /**
  *
@@ -11,12 +11,14 @@ import org.codehaus.groovy.control.MultipleCompilationErrorsException
  */
 class TheTest extends TestCase {
     def sh;
+    def binding = new Binding()
 
     void setUp() {
-        def binding = new Binding()
         binding.foo = "FOO"
         binding.bar = "BAR"
         binding.zot = 5
+        binding.point = new Point(1,2)
+        binding.points = [new Point(1,2),new Point(3,4)]
 
         def cc = new CompilerConfiguration()
         cc.addCompilationCustomizers(new SecureTransformer())
@@ -41,5 +43,20 @@ class TheTest extends TestCase {
 
         // intercept field access
         assertEquals(1,eval("new java.awt.Point(1,2).@x"))
+
+        // set
+        assertEquals(5,eval("foo=5"))
+        assertEquals(3,eval("point.x=3"))
+        assertEquals(3,binding.point.@x)
+
+        assertEquals(4,eval("point.@x=4"))
+        assertEquals(4,binding.point.@x)
+
+        assertEquals(3,eval("points*.x=3"))
+        assertEquals(3,binding.points[0].@x)
+        assertEquals(3,binding.points[1].@x)
+        
+        // array
+        eval("x=new int[3];x[0]=1");
     }
 }

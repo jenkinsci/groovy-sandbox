@@ -88,4 +88,34 @@ class Checker {
         // I believe the name is unused
         return fakeCallSite("<init>").callConstructor(type,args);
     }
+
+    public static Object checkedSetProperty(Object receiver, Object property, boolean safe, boolean spread, Object value) {
+        if (safe && receiver==null)     return;
+        if (spread) {
+            receiver.each { checkedSetProperty(it,property,true,false,value) }
+        } else {
+            System.out.println("Set property ${property} on ${receiver} to ${value}")
+            ScriptBytecodeAdapter.setProperty(value,null,receiver,property.toString());
+        }
+        return value;
+    }
+
+    public static Object checkedSetAttribute(Object receiver, Object property, boolean safe, boolean spread, Object value) {
+        if (safe && receiver==null)     return;
+        if (spread) {
+            receiver.each { checkedSetAttribute(it,property,true,false,value) }
+        } else {
+            System.out.println("Set attribute ${property} on ${receiver} to ${value}")
+            ScriptBytecodeAdapter.setField(value,null,receiver,property.toString());
+        }
+        return value;
+    }
+    
+    public static Object checkedSetArray(Object array, Object index, Object value) {
+        System.out.println("Set array ${array}[${index}] to ${value}")
+
+        // BinaryExpressionHelper.assignToArray maps this to "putAt" call
+        fakeCallSite("putAt").call(array,index,value)
+        return value;
+    }
 }
