@@ -56,7 +56,6 @@ class SecureTransformer extends CompilationCustomizer {
         Expression transform(Expression exp) {
             if (exp instanceof MethodCallExpression) {
                 MethodCallExpression call = exp;
-                TupleExpression args = (TupleExpression)call.arguments;
                 return new StaticMethodCallExpression(
                         checkerClass,
                         "checkedCall",
@@ -75,9 +74,9 @@ class SecureTransformer extends CompilationCustomizer {
                         checkerClass,
                         "checkedStaticCall",
                         new ArgumentListExpression([
-                                new ClassExpression(call.type),
+                                new ClassExpression(call.ownerType),
                                 new ConstantExpression(call.method)
-                        ]+transform(call.arguments))
+                        ]+transformArguments(call.arguments))
                 )
             }
 
