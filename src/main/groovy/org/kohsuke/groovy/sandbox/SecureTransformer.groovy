@@ -1,4 +1,4 @@
-package test
+package org.kohsuke.groovy.sandbox
 
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer
 import org.codehaus.groovy.ast.ClassNode
@@ -20,6 +20,7 @@ import org.codehaus.groovy.ast.expr.BinaryExpression
 import org.codehaus.groovy.syntax.Types
 import org.codehaus.groovy.ast.expr.FieldExpression
 import org.codehaus.groovy.ast.expr.VariableExpression
+import org.kohsuke.groovy.sandbox.impl.Checker
 
 /**
  * Transforms Groovy code at compile-time to intercept when the script interacts with the outside world.

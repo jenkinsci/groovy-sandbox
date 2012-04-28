@@ -1,12 +1,8 @@
-package test
+package org.kohsuke.groovy.sandbox.impl
 
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter
 import org.codehaus.groovy.runtime.callsite.CallSite
 import org.codehaus.groovy.runtime.callsite.CallSiteArray
-import org.kohsuke.groovy.sandbox.impl.VarArgInvokerChain
-import org.kohsuke.groovy.sandbox.impl.ZeroArgInvokerChain
-import org.kohsuke.groovy.sandbox.impl.SingleArgInvokerChain
-import org.kohsuke.groovy.sandbox.impl.TwoArgInvokerChain
 
 /**
  * Intercepted Groovy script calls into this class.

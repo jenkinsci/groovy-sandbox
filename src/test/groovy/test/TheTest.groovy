@@ -3,6 +3,7 @@ package test
 import java.awt.Point
 import junit.framework.TestCase
 import org.codehaus.groovy.control.CompilerConfiguration
+import org.kohsuke.groovy.sandbox.SecureTransformer
 
 /**
  *
