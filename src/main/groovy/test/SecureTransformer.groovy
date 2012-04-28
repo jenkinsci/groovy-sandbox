@@ -22,11 +22,49 @@ import org.codehaus.groovy.ast.expr.FieldExpression
 import org.codehaus.groovy.ast.expr.VariableExpression
 
 /**
+ * Transforms Groovy code at compile-time to intercept when the script interacts with the outside world.
  *
+ * <p>
+ * Sometimes you'd like to run Groovy scripts in a sandbox environment, where you only want it to
+ * access limited subset of the rest of JVM. This transformation makes that possible by letting you inspect
+ * every step of the script execution when it makes method calls and property/field/array access.
+ *
+ * <p>
+ * Once the script is transformed, every intercepted operation results in a call to
+ *
+ * <p>
+ * To use it, add it to the {@link org.codehaus.groovy.control.CompilerConfiguration}, like this:
+ *
+ * <pre>
+ * def cc = new CompilerConfiguration()
+ * cc.addCompilationCustomizers(new SecureTransformer())
+ * sh = new GroovyShell(cc)
+ * </pre>
+ *
+ * <p>
+ * By default, this code intercepts everything that can be intercepted, which are:
+ * <ul>
+ *     <li>Method calls (instance method and static method)
+ *     <li>Object allocation (that is, a constructor call except of the form "this(...)" and "super(...)")
+ *     <li>Property access (e.g., z=foo.bar, z=foo."bar") and assignment (e.g., foo.bar=z, foo."bar"=z)
+ *     <li>Attribute access (e.g., z=foo.@bar) and assignments (e.g., foo.@bar=z)
+ *     <li>Array access and assignment (z=x[y] and x[y]=z)
+ * </ul>
+ * <p>
+ * You can disable interceptions selectively by setting respective {@code interceptXXX} flags to {@code false}.
+ *
+ * <p>
+ * There'll be a substantial hit to the performance of the execution.
  *
  * @author Kohsuke Kawaguchi
  */
 class SecureTransformer extends CompilationCustomizer {
+    boolean interceptMethodCall=true;
+    boolean interceptConstructor=true;
+    boolean interceptProperty=true;
+    boolean interceptArray=true;
+    boolean interceptAttribute=true;
+
     SecureTransformer() {
         super(CompilePhase.CANONICALIZATION)
     }
@@ -66,7 +104,7 @@ class SecureTransformer extends CompilationCustomizer {
     
         @Override
         Expression transform(Expression exp) {
-            if (exp instanceof MethodCallExpression) {
+            if (exp instanceof MethodCallExpression && interceptMethodCall) {
                 MethodCallExpression call = exp;
                 return makeCheckedCall("checkedCall",[
                         transform(call.objectExpression),
@@ -76,7 +114,7 @@ class SecureTransformer extends CompilationCustomizer {
                     ]+transformArguments(call.arguments))
             }
             
-            if (exp instanceof StaticMethodCallExpression) {
+            if (exp instanceof StaticMethodCallExpression && interceptMethodCall) {
                 /*
                     Groovy doesn't use StaticMethodCallExpression as much as it could in compilation.
                     For example, "Math.max(1,2)" results in a regular MethodCallExpression.
@@ -91,7 +129,7 @@ class SecureTransformer extends CompilationCustomizer {
                     ]+transformArguments(call.arguments))
             }
 
-            if (exp instanceof ConstructorCallExpression) {
+            if (exp instanceof ConstructorCallExpression && interceptConstructor) {
                 if (!exp.isSpecialCall()) {
                     // creating a new instance, like "new Foo(...)"
                     return makeCheckedCall("checkedConstructor", [
@@ -103,7 +141,7 @@ class SecureTransformer extends CompilationCustomizer {
                 }
             }
 
-            if (exp instanceof AttributeExpression) {
+            if (exp instanceof AttributeExpression && interceptAttribute) {
                 return makeCheckedCall("checkedGetAttribute", [
                     transform(exp.objectExpression),
                     boolExp(exp.safe),
@@ -112,7 +150,7 @@ class SecureTransformer extends CompilationCustomizer {
                 ])
             }
 
-            if (exp instanceof PropertyExpression) {
+            if (exp instanceof PropertyExpression && interceptProperty) {
                 return makeCheckedCall("checkedGetProperty", [
                     transform(exp.objectExpression),
                     boolExp(exp.safe),
@@ -133,7 +171,17 @@ class SecureTransformer extends CompilationCustomizer {
 
                     Expression lhs = exp.leftExpression;
                     if (lhs instanceof PropertyExpression) {
-                        def name = (lhs instanceof AttributeExpression) ? "checkedSetAttribute":"checkedSetProperty";
+                        def name = null;
+                        if (lhs instanceof AttributeExpression) {
+                            if (interceptAttribute)
+                                name = "checkedSetAttribute";
+                        } else {
+                            if (interceptProperty)
+                                name = "checkedSetProperty";
+                        }
+                        if (name==null) // not intercepting?
+                            return super.transform(exp);
+
                         return makeCheckedCall(name, [
                                 lhs.objectExpression,
                                 lhs.property,
@@ -153,7 +201,7 @@ class SecureTransformer extends CompilationCustomizer {
                         return super.transform(exp);
                     } else
                     if (lhs instanceof BinaryExpression) {
-                        if (lhs.operation.type==Types.LEFT_SQUARE_BRACKET) {// expression of the form "x[y] = z"
+                        if (lhs.operation.type==Types.LEFT_SQUARE_BRACKET && interceptArray) {// expression of the form "x[y] = z"
                             return makeCheckedCall("checkedSetArray", [
                                     transform(lhs.leftExpression),
                                     transform(lhs.rightExpression),
@@ -163,7 +211,7 @@ class SecureTransformer extends CompilationCustomizer {
                     } else
                         throw new AssertionError("Unexpected LHS of an assignment: ${lhs.class}")
                 }
-                if (exp.operation.type==Types.LEFT_SQUARE_BRACKET) {// array reference
+                if (exp.operation.type==Types.LEFT_SQUARE_BRACKET && interceptArray) {// array reference
                     return makeCheckedCall("checkedGetArray", [
                             transform(exp.leftExpression),
                             transform(exp.rightExpression)
