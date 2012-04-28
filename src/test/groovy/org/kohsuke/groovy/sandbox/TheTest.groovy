@@ -1,4 +1,4 @@
-package test
+package org.kohsuke.groovy.sandbox
 
 import java.awt.Point
 import junit.framework.TestCase

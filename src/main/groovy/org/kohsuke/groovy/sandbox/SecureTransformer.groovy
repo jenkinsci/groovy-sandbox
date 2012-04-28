@@ -81,7 +81,6 @@ class SecureTransformer extends CompilationCustomizer {
 
     class VisitorImpl extends ClassCodeExpressionTransformer {
         private SourceUnit sourceUnit;
-        static final def checkerClass = new ClassNode(Checker.class)
 
         VisitorImpl(SourceUnit sourceUnit) {
             this.sourceUnit = sourceUnit
@@ -234,4 +233,6 @@ class SecureTransformer extends CompilationCustomizer {
             return sourceUnit;
         }
     }
+
+    static final def checkerClass = new ClassNode(Checker.class)
 }

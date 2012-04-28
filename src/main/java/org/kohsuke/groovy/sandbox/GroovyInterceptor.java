@@ -5,7 +5,11 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Interceptor of Groovy method calls
+ * Interceptor of Groovy method calls.
+ *
+ * <p>
+ * Once created, it needs to be {@linkplain #addToThread() registered} to start receiving interceptions. 
+ * List of interceptors are maintained per thread.
  *
  * @author Kohsuke Kawaguchi
  */
@@ -76,15 +80,15 @@ public abstract class GroovyInterceptor {
      *
      * @param receiver
      *      'foo' in the above example, the object whose attribute is accessed.
-     * @param property
+     * @param attribute
      *      'bar' in the above example, the name of the attribute
      * @param value
      *      The value to be assigned.
      * @return
      *      The result of the assignment expression. Normally, you should return the same object as {@code value}.
      */
-    public Object onSetAttribute(Invoker invoker, Object receiver, String property, Object value) throws Throwable {
-        return invoker.call(receiver,property,value);
+    public Object onSetAttribute(Invoker invoker, Object receiver, String attribute, Object value) throws Throwable {
+        return invoker.call(receiver,attribute,value);
     }
 
     /**
@@ -115,6 +119,38 @@ public abstract class GroovyInterceptor {
         return invoker.call(receiver,null,index,value);
     }
 
+    /**
+     * Represents the next interceptor in the chain.
+     * 
+     * As {@link GroovyInterceptor}, you intercept by doing one of the following:
+     * 
+     * <ul>
+     *     <li>Pass on to the next interceptor by calling one of the call() method,
+     *         possibly modifying the arguments and return values, intercepting an exception, etc.
+     *     <li>Throws an exception to block the call.
+     *     <li>Return some value without calling the next interceptor.
+     * </ul>
+     * 
+     * The signature of the call method is as follows:
+     * 
+     * <dl>
+     *     <dt>receiver</dt>
+     *     <dd>
+     *         The object whose method/property is accessed.
+     *         For constructor invocations and static calls, this is {@link Class}.
+     *     </dd>
+     *     <dt>method</dt>
+     *     <dd>
+     *         The name of the method/property/attribute. Otherwise pass in null.
+     *     </dd>
+     *     <dt>args</dt>
+     *     <dd>
+     *         Arguments of the method call, index of the array access, and/or values to be set.
+     *         Multiple override of the call method is provided to avoid the implicit object
+     *         array creation, but otherwise they behave the same way.
+     *     </dd>
+     * </dl>
+     */
     public interface Invoker {
         Object call(Object receiver, String method) throws Throwable;
         Object call(Object receiver, String method, Object arg1) throws Throwable;
@@ -130,10 +166,16 @@ public abstract class GroovyInterceptor {
 //        globalInterceptors.remove(this);
 //    }
 
+    /**
+     * Registers this interceptor to the current thread's interceptor list.
+     */
     public void addToThread() {
         threadInterceptors.get().add(this);
     }
 
+    /**
+     * Reverses the earlier effect of {@link #addToThread()}
+     */
     public void removeFromThread() {
         threadInterceptors.get().remove(this);
     }
