@@ -1,12 +1,12 @@
 package org.kohsuke.groovy.sandbox;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Vector;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
+ * Interceptor of Groovy method calls
+ *
  * @author Kohsuke Kawaguchi
  */
 public abstract class GroovyInterceptor {
