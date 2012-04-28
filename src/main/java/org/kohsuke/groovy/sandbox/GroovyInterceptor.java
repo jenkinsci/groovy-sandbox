@@ -1,15 +1,15 @@
 package org.kohsuke.groovy.sandbox;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Vector;
+import java.util.concurrent.CopyOnWriteArrayList;
+
 /**
  * @author Kohsuke Kawaguchi
  */
 public abstract class GroovyInterceptor {
-    public interface Invoker {
-        Object call(Object receiver, String method) throws Throwable;
-        Object call(Object receiver, String method, Object arg1) throws Throwable;
-        Object call(Object receiver, String method, Object... args) throws Throwable;
-    }
-
     /**
      * Intercepts an instance method call on some object of the form "foo.bar(...)"
      */
@@ -39,7 +39,7 @@ public abstract class GroovyInterceptor {
      * @param property
      *      'bar' in the above example, the name of the property
      */
-    public Object onGetProperty(Invoker invoker, Class receiver, String property) throws Throwable {
+    public Object onGetProperty(Invoker invoker, Object receiver, String property) throws Throwable {
         return invoker.call(receiver,property);
     }
 
@@ -55,7 +55,7 @@ public abstract class GroovyInterceptor {
      * @return
      *      The result of the assignment expression. Normally, you should return the same object as {@code value}.
      */
-    public Object onSetProperty(Invoker invoker, Class receiver, String property, Object value) throws Throwable {
+    public Object onSetProperty(Invoker invoker, Object receiver, String property, Object value) throws Throwable {
         return invoker.call(receiver,property,value);
     }
 
@@ -67,7 +67,7 @@ public abstract class GroovyInterceptor {
      * @param attribute
      *      'bar' in the above example, the name of the attribute
      */
-    public Object onGetAttribute(Invoker invoker, Class receiver, String attribute) throws Throwable {
+    public Object onGetAttribute(Invoker invoker, Object receiver, String attribute) throws Throwable {
         return invoker.call(receiver, attribute);
     }
 
@@ -83,7 +83,78 @@ public abstract class GroovyInterceptor {
      * @return
      *      The result of the assignment expression. Normally, you should return the same object as {@code value}.
      */
-    public Object onSetAttribute(Invoker invoker, Class receiver, String property, Object value) throws Throwable {
+    public Object onSetAttribute(Invoker invoker, Object receiver, String property, Object value) throws Throwable {
         return invoker.call(receiver,property,value);
+    }
+
+    /**
+     * Intercepts an array access, like "z=foo[bar]"
+     *
+     * @param receiver
+     *      'foo' in the above example, the array-like object.
+     * @param index
+     *      'bar' in the above example, the object that acts as an index.
+     */
+    public Object onGetArray(Invoker invoker, Object receiver, Object index) throws Throwable {
+        return invoker.call(receiver,null,index);
+    }
+
+    /**
+     * Intercepts an attribute assignment like "foo[bar]=z"
+     *
+     * @param receiver
+     *      'foo' in the above example, the array-like object.
+     * @param index
+     *      'bar' in the above example, the object that acts as an index.
+     * @param value
+     *      The value to be assigned.
+     * @return
+     *      The result of the assignment expression. Normally, you should return the same object as {@code value}.
+     */
+    public Object onSetArray(Invoker invoker, Object receiver, Object index, Object value) throws Throwable {
+        return invoker.call(receiver,null,index,value);
+    }
+
+    public interface Invoker {
+        Object call(Object receiver, String method) throws Throwable;
+        Object call(Object receiver, String method, Object arg1) throws Throwable;
+        Object call(Object receiver, String method, Object arg1, Object arg2) throws Throwable;
+        Object call(Object receiver, String method, Object... args) throws Throwable;
+    }
+    
+//    public void addToGlobal() {
+//        globalInterceptors.add(this);
+//    }
+//
+//    public void removeFromGlobal() {
+//        globalInterceptors.remove(this);
+//    }
+
+    public void addToThread() {
+        threadInterceptors.get().add(this);
+    }
+
+    public void removeFromThread() {
+        threadInterceptors.get().remove(this);
+    }
+
+    private static final ThreadLocal<List<GroovyInterceptor>> threadInterceptors = new ThreadLocal<List<GroovyInterceptor>>() {
+        @Override
+        protected List<GroovyInterceptor> initialValue() {
+            return new CopyOnWriteArrayList<GroovyInterceptor>();
+        }
+    };
+
+    private static final ThreadLocal<List<GroovyInterceptor>> threadInterceptorsView = new ThreadLocal<List<GroovyInterceptor>>() {
+        @Override
+        protected List<GroovyInterceptor> initialValue() {
+            return Collections.unmodifiableList(threadInterceptors.get());
+        }
+    };
+    
+//    private static final List<GroovyInterceptor> globalInterceptors = new CopyOnWriteArrayList<GroovyInterceptor>();
+    
+    public static List<GroovyInterceptor> getApplicableInterceptors() {
+        return threadInterceptorsView.get();
     }
 }
