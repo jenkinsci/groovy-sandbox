@@ -82,4 +82,10 @@ class Checker {
             return ScriptBytecodeAdapter.getField(null,receiver,property.toString());
         }
     }
+
+    public static Object checkedConstructor(Class type, Object... args) {
+        System.out.println("Creating a new instance of ${type}")
+        // I believe the name is unused
+        return fakeCallSite("<init>").callConstructor(type,args);
+    }
 }

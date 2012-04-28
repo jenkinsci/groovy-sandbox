@@ -3,19 +3,19 @@ package test
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer
 import org.codehaus.groovy.ast.ClassNode
 import org.codehaus.groovy.ast.expr.ArgumentListExpression
+import org.codehaus.groovy.ast.expr.AttributeExpression
+import org.codehaus.groovy.ast.expr.ClassExpression
 import org.codehaus.groovy.ast.expr.ConstantExpression
 import org.codehaus.groovy.ast.expr.Expression
 import org.codehaus.groovy.ast.expr.MethodCallExpression
+import org.codehaus.groovy.ast.expr.PropertyExpression
 import org.codehaus.groovy.ast.expr.StaticMethodCallExpression
+import org.codehaus.groovy.ast.expr.TupleExpression
 import org.codehaus.groovy.classgen.GeneratorContext
 import org.codehaus.groovy.control.CompilePhase
 import org.codehaus.groovy.control.SourceUnit
 import org.codehaus.groovy.control.customizers.CompilationCustomizer
-import org.codehaus.groovy.ast.expr.TupleExpression
-import org.codehaus.groovy.ast.expr.ClassExpression
-import org.codehaus.groovy.ast.expr.PropertyExpression
-import javax.print.AttributeException
-import org.codehaus.groovy.ast.expr.AttributeExpression
+import org.codehaus.groovy.ast.expr.ConstructorCallExpression
 
 /**
  *
@@ -87,8 +87,17 @@ class SecureTransformer extends CompilationCustomizer {
                     ]+transformArguments(call.arguments))
             }
 
-            // we can't really intercept constructor call, since it has to be the first method
-            // call in a constructor.
+            if (exp instanceof ConstructorCallExpression) {
+                if (!exp.isSpecialCall()) {
+                    // creating a new instance, like "new Foo(...)"
+                    return makeCheckedCall("checkedConstructor", [
+                            new ClassExpression(exp.type)
+                    ]+transformArguments(exp.arguments))
+                } else {
+                    // we can't really intercept constructor calling super(...) or this(...),
+                    // since it has to be the first method call in a constructor.
+                }
+            }
 
             // TODO: how does Groovy builds AST from "new String(...)"?
 
