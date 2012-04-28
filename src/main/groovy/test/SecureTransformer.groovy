@@ -12,6 +12,7 @@ import org.codehaus.groovy.control.CompilePhase
 import org.codehaus.groovy.control.SourceUnit
 import org.codehaus.groovy.control.customizers.CompilationCustomizer
 import org.codehaus.groovy.ast.expr.TupleExpression
+import org.codehaus.groovy.ast.expr.ClassExpression
 
 /**
  *
@@ -40,10 +41,21 @@ class SecureTransformer extends CompilationCustomizer {
             this.sourceUnit = sourceUnit
         }
 
+        /**
+         * Transforms the arguments of a call.
+         * Groovy primarily uses {@link ArgumentListExpression} for this,
+         * but the signature doesn't guarantee that. So this method takes care of that.
+         */
+        List<Expression> transformArguments(Expression e) {
+            if (e instanceof TupleExpression)
+                return e.expressions*.transformExpression(this)
+            return [e.transformExpression(this)];
+        }
+    
         @Override
         Expression transform(Expression exp) {
             if (exp instanceof MethodCallExpression) {
-                MethodCallExpression call = (MethodCallExpression) exp;
+                MethodCallExpression call = exp;
                 TupleExpression args = (TupleExpression)call.arguments;
                 return new StaticMethodCallExpression(
                         checkerClass,
@@ -53,7 +65,19 @@ class SecureTransformer extends CompilationCustomizer {
                             boolExp(call.safe),
                             boolExp(call.spreadSafe),
                             transform(call.method)
-                        ]+args.expressions*.transformExpression(this))
+                        ]+transformArguments(call.arguments))
+                )
+            }
+            
+            if (exp instanceof StaticMethodCallExpression) {
+                StaticMethodCallExpression call = exp;
+                return new StaticMethodCallExpression(
+                        checkerClass,
+                        "checkedStaticCall",
+                        new ArgumentListExpression([
+                                new ClassExpression(call.type),
+                                new ConstantExpression(call.method)
+                        ]+transform(call.arguments))
                 )
             }
 

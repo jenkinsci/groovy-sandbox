@@ -33,7 +33,7 @@ class TheTest extends TestCase {
     }
 
     void testOK() {
-//        eval("5.class.forName('java.lang.String')")
+        eval("5.class.forName('java.lang.String')")
         assertEquals("foo".hashCode(),eval("'foo'.toString().hashCode()"))
         assertEquals(Math.max(1f,2f),eval("Math.max(1f,2f)"))
     }
