@@ -57,6 +57,10 @@ class TheTest extends TestCase {
         assertEquals(3,binding.points[1].@x)
         
         // array
-        eval("x=new int[3];x[0]=1");
+        int[] a = (int[])eval("x=new int[3];x[0]=1;x");
+        assertEquals(a.length,3)
+        assertEquals(a[0],1)
+
+        assertEquals(0,eval("x=new int[3];x[0]"));
     }
 }

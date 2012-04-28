@@ -163,6 +163,12 @@ class SecureTransformer extends CompilationCustomizer {
                     } else
                         throw new AssertionError("Unexpected LHS of an assignment: ${lhs.class}")
                 }
+                if (exp.operation.type==Types.LEFT_SQUARE_BRACKET) {// array reference
+                    return makeCheckedCall("checkedGetArray", [
+                            transform(exp.leftExpression),
+                            transform(exp.rightExpression)
+                    ])
+                }
             }
 
             return super.transform(exp)

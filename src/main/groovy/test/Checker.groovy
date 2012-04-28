@@ -110,7 +110,14 @@ class Checker {
         }
         return value;
     }
-    
+
+    public static Object checkedGetArray(Object array, Object index) {
+        System.out.println("Get array ${array}[${index}]")
+
+        // BinaryExpressionHelper.eval maps this to "getAt" call
+        return fakeCallSite("getAt").call(array,index)
+    }
+
     public static Object checkedSetArray(Object array, Object index, Object value) {
         System.out.println("Set array ${array}[${index}] to ${value}")
 
