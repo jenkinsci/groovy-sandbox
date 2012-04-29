@@ -14,7 +14,7 @@ See [my blog post](http://kohsuke.org/2012/04/27/groovy-secureastcustomizer-is-h
 You have to add `SandboxTransformer` to your `CompilerConfiguration` first:
 
     def cc = new CompilerConfiguration()
-    cc.addCompilationCustomizers(new SecureTransformer())
+    cc.addCompilationCustomizers(new SandboxTransformer())
     def binding = new Binding();
     binding.robot = robot = new Robot();
     sh = new GroovyShell(binding,cc)
