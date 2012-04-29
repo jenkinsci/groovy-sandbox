@@ -182,7 +182,7 @@ executions. This inclueds every method call, object allocations, property/attrib
 <p>You have to add <code>SandboxTransformer</code> to your <code>CompilerConfiguration</code> first:</p>
 
 <pre><code>def cc = new CompilerConfiguration()
-cc.addCompilationCustomizers(new SecureTransformer())
+cc.addCompilationCustomizers(new SandboxTransformer())
 def binding = new Binding();
 binding.robot = robot = new Robot();
 sh = new GroovyShell(binding,cc)
