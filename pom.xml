@@ -82,10 +82,16 @@
     </dependency>
   </dependencies>
 
+  <scm>
+    <connection>scm:git:git@github.com/kohsuke/${project.artifactId}.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/kohsuke/${project.artifactId}.git</developerConnection>
+    <url>http://${project.artifactId}.kohsuke.org/</url>
+  </scm>
+
   <distributionManagement>
     <site>
       <id>github-pages</id>
-      <url>gitsite:git@github.com/kohsuke/com4j.git</url>
+      <url>gitsite:git@github.com/kohsuke/${project.artifactId}.git</url>
     </site>
   </distributionManagement>
 
