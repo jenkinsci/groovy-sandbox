@@ -8,7 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Interceptor of Groovy method calls.
  *
  * <p>
- * Once created, it needs to be {@linkplain #addToThread() registered} to start receiving interceptions. 
+ * Once created, it needs to be {@linkplain #register() registered} to start receiving interceptions.
  * List of interceptors are maintained per thread.
  *
  * @author Kohsuke Kawaguchi
@@ -174,14 +174,14 @@ public abstract class GroovyInterceptor {
     /**
      * Registers this interceptor to the current thread's interceptor list.
      */
-    public void addToThread() {
+    public void register() {
         threadInterceptors.get().add(this);
     }
 
     /**
-     * Reverses the earlier effect of {@link #addToThread()}
+     * Reverses the earlier effect of {@link #register()}
      */
-    public void removeFromThread() {
+    public void unregister() {
         threadInterceptors.get().remove(this);
     }
 

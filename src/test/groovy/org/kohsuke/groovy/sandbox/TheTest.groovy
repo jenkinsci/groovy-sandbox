@@ -22,20 +22,20 @@ class TheTest extends TestCase {
         binding.points = [new Point(1,2),new Point(3,4)]
 
         def cc = new CompilerConfiguration()
-        cc.addCompilationCustomizers(new SecureTransformer())
+        cc.addCompilationCustomizers(new SandboxTransformer())
         sh = new GroovyShell(binding,cc)
 
     }
 
     def eval(String expression) {
         cr.reset()
-        cr.addToThread();
+        cr.register();
         try {
             return sh.evaluate(expression)
         } catch (Exception e) {
             throw new Exception("Failed to evaluate "+expression,e)
         } finally {
-            cr.removeFromThread();
+            cr.unregister();
         }
     }
     

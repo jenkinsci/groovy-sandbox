@@ -2,7 +2,8 @@ package org.kohsuke.groovy.sandbox.robot
 
 import junit.framework.TestCase
 import org.codehaus.groovy.control.CompilerConfiguration
-import org.kohsuke.groovy.sandbox.SecureTransformer
+
+import org.kohsuke.groovy.sandbox.SandboxTransformer
 
 /**
  *
@@ -17,16 +18,16 @@ class RobotTest extends TestCase {
     @Override
     protected void setUp() {
         def cc = new CompilerConfiguration()
-        cc.addCompilationCustomizers(new SecureTransformer())
+        cc.addCompilationCustomizers(new SandboxTransformer())
         def binding = new Binding();
         binding.robot = robot = new Robot();
         sh = new GroovyShell(binding,cc)
-        sandbox.addToThread()
+        sandbox.register()
     }
 
     @Override
     protected void tearDown() {
-        sandbox.removeFromThread()
+        sandbox.unregister()
     }
 
     void assertFail(String script) {

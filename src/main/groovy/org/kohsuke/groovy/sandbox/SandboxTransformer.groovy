@@ -38,7 +38,7 @@ import org.kohsuke.groovy.sandbox.impl.Checker
  *
  * <pre>
  * def cc = new CompilerConfiguration()
- * cc.addCompilationCustomizers(new SecureTransformer())
+ * cc.addCompilationCustomizers(new SandboxTransformer())
  * sh = new GroovyShell(cc)
  * </pre>
  *
@@ -59,14 +59,14 @@ import org.kohsuke.groovy.sandbox.impl.Checker
  *
  * @author Kohsuke Kawaguchi
  */
-class SecureTransformer extends CompilationCustomizer {
+class SandboxTransformer extends CompilationCustomizer {
     boolean interceptMethodCall=true;
     boolean interceptConstructor=true;
     boolean interceptProperty=true;
     boolean interceptArray=true;
     boolean interceptAttribute=true;
 
-    SecureTransformer() {
+    SandboxTransformer() {
         super(CompilePhase.CANONICALIZATION)
     }
 
