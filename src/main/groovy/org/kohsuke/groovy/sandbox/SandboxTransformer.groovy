@@ -107,6 +107,7 @@ class SandboxTransformer extends CompilationCustomizer {
     
         @Override
         Expression transform(Expression exp) {
+
             if (exp instanceof MethodCallExpression && interceptMethodCall) {
                 MethodCallExpression call = exp;
                 return makeCheckedCall("checkedCall",[

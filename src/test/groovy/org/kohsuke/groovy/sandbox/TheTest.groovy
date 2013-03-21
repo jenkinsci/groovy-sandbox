@@ -117,6 +117,15 @@ class TheTest extends TestCase {
         )
     }
 
+    void testClosure() {
+        assertIntercept(
+                "Script1\$_run_closure1.call()/Integer.class/Class.forName(String)",
+                null,
+                "def foo = { 5.class.forName('java.lang.String') }\n" +
+                "foo()\n" +
+                "return null")
+    }
+
     void testClass() {
         assertIntercept(
                 "Integer.class/Class.forName(String)",
