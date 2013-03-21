@@ -74,9 +74,12 @@ class SandboxTransformer extends CompilationCustomizer {
     void call(SourceUnit source, GeneratorContext context, ClassNode classNode) {
         def ast = source.getAST();
         def visitor = new VisitorImpl(source);
-        ast.statementBlock.visit(visitor);
 
-        ast.methods?.each { it.code.visit(visitor) }
+        ast.methods?.each { visitor.visitMethod(it) }
+        classNode?.declaredConstructors?.each { visitor.visitMethod(it) }
+        classNode?.methods?.each { visitor.visitMethod(it) }
+        classNode?.objectInitializerStatements?.each { it.visit(visitor) }
+        classNode?.fields?.each { visitor.visitField(it) }
     }
 
     class VisitorImpl extends ClassCodeExpressionTransformer {
