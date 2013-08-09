@@ -239,9 +239,19 @@ class SandboxTransformer extends CompilationCustomizer {
                     } else
                         throw new AssertionError("Unexpected LHS of an assignment: ${lhs.class}")
                 }
-                if (exp.operation.type==Types.LEFT_SQUARE_BRACKET && interceptArray) {// array reference
-                    return makeCheckedCall("checkedGetArray", [
+                if (exp.operation.type==Types.LEFT_SQUARE_BRACKET) {// array reference
+                    if (interceptArray)
+                        return makeCheckedCall("checkedGetArray", [
+                                transform(exp.leftExpression),
+                                transform(exp.rightExpression)
+                        ])
+                } else
+                if (interceptMethodCall) {
+                    // normally binary operators like a+b
+                    // TODO: check what other weird binary operators land here
+                    return makeCheckedCall("checkedBinaryOp",[
                             transform(exp.leftExpression),
+                            intExp(exp.operation.type),
                             transform(exp.rightExpression)
                     ])
                 }

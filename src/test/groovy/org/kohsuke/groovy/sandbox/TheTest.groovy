@@ -219,4 +219,13 @@ point.x += 3
 intArray[1] <<= 3;
 """)
     }
+
+    void testComparison() {
+        assertIntercept(
+                "[I[Integer]/Integer.leftShift(Integer)/[I[Integer]=Integer",
+                true,
+"""
+point==point
+""")
+    }
 }
