@@ -31,7 +31,9 @@ import org.kohsuke.groovy.sandbox.impl.Checker
  * every step of the script execution when it makes method calls and property/field/array access.
  *
  * <p>
- * Once the script is transformed, every intercepted operation results in a call to
+ * Once the script is transformed, every intercepted operation results in a call to {@link Checker},
+ * which further forwards the call to {@link GroovyInterceptor} for inspection.
+ *
  *
  * <p>
  * To use it, add it to the {@link org.codehaus.groovy.control.CompilerConfiguration}, like this:
@@ -60,10 +62,28 @@ import org.kohsuke.groovy.sandbox.impl.Checker
  * @author Kohsuke Kawaguchi
  */
 class SandboxTransformer extends CompilationCustomizer {
+    /**
+     * Intercept method calls
+     */
     boolean interceptMethodCall=true;
+    /**
+     * Intercept object instantiation by intercepting its constructor call.
+     *
+     * Note that Java byte code doesn't allow the interception of super(...) and this(...)
+     * so the object instantiation by defining and instantiating a subtype cannot be intercepted.
+     */
     boolean interceptConstructor=true;
+    /**
+     * Intercept property access for both read "(...).y" and write "(...).y=..."
+     */
     boolean interceptProperty=true;
+    /**
+     * Intercept array access for both read "y=a[x]" and write "a[x]=y"
+     */
     boolean interceptArray=true;
+    /**
+     * Intercept attribute access for both read "z=x.@y" and write "x.@y=z"
+     */
     boolean interceptAttribute=true;
 
     SandboxTransformer() {
