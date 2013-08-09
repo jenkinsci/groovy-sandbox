@@ -22,6 +22,8 @@ import org.codehaus.groovy.ast.expr.FieldExpression
 import org.codehaus.groovy.ast.expr.VariableExpression
 import org.kohsuke.groovy.sandbox.impl.Checker
 
+import static org.codehaus.groovy.syntax.Types.*
+
 /**
  * Transforms Groovy code at compile-time to intercept when the script interacts with the outside world.
  *
@@ -185,8 +187,8 @@ class SandboxTransformer extends CompilationCustomizer {
 
             if (exp instanceof BinaryExpression) {
                 // this covers everything from a+b to a=b
-                if (exp.operation.type==Types.ASSIGN) {
-                    // TODO: there are whole bunch of other composite assignment operators like |=, +=, etc.
+                if (ofType(exp.operation.type,ASSIGNMENT_OPERATOR)) {
+                    // simple assignment like '=' as well as compound assignments like "+=","-=", etc.
 
                     // How we dispatch this depends on the type of left expression.
                     // 
@@ -211,7 +213,8 @@ class SandboxTransformer extends CompilationCustomizer {
                                 lhs.property,
                                 boolExp(lhs.safe),
                                 boolExp(lhs.spreadSafe),
-                                transform(exp.rightExpression)
+                                intExp(exp.operation.type),
+                                transform(exp.rightExpression),
                         ])
                     } else
                     if (lhs instanceof FieldExpression) {
@@ -229,6 +232,7 @@ class SandboxTransformer extends CompilationCustomizer {
                             return makeCheckedCall("checkedSetArray", [
                                     transform(lhs.leftExpression),
                                     transform(lhs.rightExpression),
+                                    intExp(exp.operation.type),
                                     transform(exp.rightExpression)
                             ])
                         }
@@ -250,6 +254,9 @@ class SandboxTransformer extends CompilationCustomizer {
             return v ? ConstantExpression.PRIM_TRUE : ConstantExpression.PRIM_FALSE
         }
 
+        ConstantExpression intExp(int v) {
+            return new ConstantExpression(v,true);
+        }
 
 
         @Override

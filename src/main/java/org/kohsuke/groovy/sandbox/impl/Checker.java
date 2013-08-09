@@ -1,9 +1,11 @@
 package org.kohsuke.groovy.sandbox.impl;
 
+import org.codehaus.groovy.classgen.asm.BinaryExpressionHelper;
 import org.codehaus.groovy.runtime.InvokerHelper;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
 import org.codehaus.groovy.runtime.callsite.CallSite;
 import org.codehaus.groovy.runtime.callsite.CallSiteArray;
+import org.codehaus.groovy.syntax.Types;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -118,14 +120,21 @@ public class Checker {
         }
     }
 
-    public static Object checkedSetProperty(Object _receiver, Object _property, boolean safe, boolean spread, Object _value) throws Throwable {
+    public static Object checkedSetProperty(Object _receiver, Object _property, boolean safe, boolean spread, int op, Object _value) throws Throwable {
+        if (op!=Types.ASSIGN) {
+            // a compound assignment operator is decomposed into get+op+set
+            // for example, a.x += y  => a.x=a.x+y
+            Object v = checkedGetProperty(_receiver, safe, spread, _property);
+            return checkedSetProperty(_receiver, _property, safe, spread, Types.ASSIGN,
+                    checkedBinaryOp(v, Ops.compoundAssignmentToBinaryOperator(op), _value));
+        }
         if (safe && _receiver==null)     return _value;
         if (spread) {
             Iterator itr = InvokerHelper.asIterator(_receiver);
             while (itr.hasNext()) {
                 Object it = itr.next();
                 if (it!=null)
-                    checkedSetProperty(it, _property, true, false, _value);
+                    checkedSetProperty(it, _property, true, false, op, _value);
             }
             return _value;
         } else {
@@ -167,14 +176,27 @@ public class Checker {
         }
     }
 
-    public static Object checkedSetAttribute(Object _receiver, Object _property, boolean safe, boolean spread, Object _value) throws Throwable {
+    /**
+     * Intercepts the attribute assignment of the form "receiver.@property = value"
+     *
+     * @param op
+     *      One of the assignment operators of {@link Types}
+     */
+    public static Object checkedSetAttribute(Object _receiver, Object _property, boolean safe, boolean spread, int op, Object _value) throws Throwable {
+        if (op!=Types.ASSIGN) {
+            // a compound assignment operator is decomposed into get+op+set
+            // for example, a.@x += y  => a.@x=a.@x+y
+            Object v = checkedGetAttribute(_receiver, safe, spread, _property);
+            return checkedSetAttribute(_receiver, _property, safe, spread, Types.ASSIGN,
+                    checkedBinaryOp(v, Ops.compoundAssignmentToBinaryOperator(op), _value));
+        }
         if (safe && _receiver==null)     return _value;
         if (spread) {
             Iterator itr = InvokerHelper.asIterator(_receiver);
             while (itr.hasNext()) {
                 Object it = itr.next();
                 if (it!=null)
-                    checkedSetAttribute(it,_property,true,false,_value);
+                    checkedSetAttribute(it,_property,true,false,op,_value);
             }
         } else {
             return new SingleArgInvokerChain() {
@@ -203,17 +225,44 @@ public class Checker {
         }.call(_receiver,null,_index);
     }
 
-    public static Object checkedSetArray(Object _receiver, Object _index, Object _value) throws Throwable {
-        return new TwoArgInvokerChain() {
-            public Object call(Object receiver, String _, Object index, Object value) throws Throwable {
-                if (chain.hasNext())
-                    return chain.next().onSetArray(this,receiver,index,value);
-                else {
-                    // BinaryExpressionHelper.assignToArray maps this to "putAt" call
-                    fakeCallSite("putAt").call(receiver,index,value);
-                    return value;
+    /**
+     * Intercepts the array assignment of the form "receiver[index] = value"
+     *
+     * @param op
+     *      One of the assignment operators of {@link Types}
+     */
+    public static Object checkedSetArray(Object _receiver, Object _index, int op, Object _value) throws Throwable {
+        if (op!=Types.ASSIGN) {
+            // a compound assignment operator is decomposed into get+op+set
+            // for example, a[x] += y  => a[x]=a[x]+y
+            Object v = checkedGetArray(_receiver, _index);
+            return checkedSetArray(_receiver, _index, Types.ASSIGN,
+                    checkedBinaryOp(v, Ops.compoundAssignmentToBinaryOperator(op), _value));
+        } else {
+            return new TwoArgInvokerChain() {
+                public Object call(Object receiver, String _, Object index, Object value) throws Throwable {
+                    if (chain.hasNext())
+                        return chain.next().onSetArray(this,receiver,index,value);
+                    else {
+                        // BinaryExpressionHelper.assignToArray maps this to "putAt" call
+                        fakeCallSite("putAt").call(receiver,index,value);
+                        return value;
+                    }
                 }
-            }
-        }.call(_receiver,null,_index,_value);
+            }.call(_receiver,null,_index,_value);
+        }
+    }
+
+    /**
+     * Intercepts the binary expression of the form "lhs op rhs" like "lhs+rhs", "lhs>>rhs", etc.
+     *
+     * In Groovy, binary operators are method calls.
+     *
+     * @param op
+     *      One of the binary operators of {@link Types}
+     * @see BinaryExpressionHelper#evaluateBinaryExpressionWithAssignment
+     */
+    public static Object checkedBinaryOp(Object lhs, int op, Object rhs) throws Throwable {
+        return checkedCall(lhs,false,false,Ops.binaryOperatorMethods(op),rhs);
     }
 }

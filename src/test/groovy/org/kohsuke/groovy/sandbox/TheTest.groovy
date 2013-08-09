@@ -20,6 +20,7 @@ class TheTest extends TestCase {
         binding.zot = 5
         binding.point = new Point(1,2)
         binding.points = [new Point(1,2),new Point(3,4)]
+        binding.intArray = [0,1,2,3,4] as int[]
 
         def cc = new CompilerConfiguration()
         cc.addCompilationCustomizers(new SandboxTransformer())
@@ -40,7 +41,8 @@ class TheTest extends TestCase {
     }
     
     def assertIntercept(String expectedCallSequence, Object expectedValue, String script) {
-        assertEquals(expectedValue,eval(script));
+        def actual = eval(script)
+        assertEquals(expectedValue, actual);
         assertEquals(expectedCallSequence.replace('/','\n').trim(), cr.toString().trim())
     }
 
@@ -197,5 +199,24 @@ class TheTest extends TestCase {
                         "}\n" +
                         "new foo()\n" +
                         "return null")
+    }
+
+    void testCompoundAssignment() {
+        assertIntercept(
+                "Point.x/Double.plus(Integer)/Point.x=Double",
+                (double)4.0,
+"""
+point.x += 3
+""")
+    }
+
+    void testCompoundAssignment2() {
+        // "[I" is the type name of int[]
+        assertIntercept(
+                "[I[Integer]/Integer.leftShift(Integer)/[I[Integer]=Integer",
+                1<<3,
+"""
+intArray[1] <<= 3;
+""")
     }
 }
