@@ -5,6 +5,7 @@ import org.codehaus.groovy.ast.ClassNode
 import org.codehaus.groovy.ast.expr.ArgumentListExpression
 import org.codehaus.groovy.ast.expr.AttributeExpression
 import org.codehaus.groovy.ast.expr.ClassExpression
+import org.codehaus.groovy.ast.expr.ClosureExpression
 import org.codehaus.groovy.ast.expr.ConstantExpression
 import org.codehaus.groovy.ast.expr.Expression
 import org.codehaus.groovy.ast.expr.MethodCallExpression
@@ -130,6 +131,11 @@ class SandboxTransformer extends CompilationCustomizer {
     
         @Override
         Expression transform(Expression exp) {
+            if (exp instanceof ClosureExpression) {
+                // ClosureExpression.transformExpression doesn't visit the code inside
+                ClosureExpression ce = (ClosureExpression)exp;
+                ce.code.visit(this)
+            }
 
             if (exp instanceof MethodCallExpression && interceptMethodCall) {
                 MethodCallExpression call = exp;
