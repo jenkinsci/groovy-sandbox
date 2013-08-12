@@ -21,6 +21,7 @@ class RobotSandbox extends GroovyValueFilter {
             Robot.Leg,
             String,
             Integer,
+            Boolean
             // all the primitive types should be OK, but I'm too lazy
 
             // I'm not adding Class, which rules out all the static method calls
