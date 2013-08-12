@@ -229,4 +229,34 @@ point==point
 5==5
 """)
     }
+
+    void testNestedClass() {
+        assertIntercept(
+                "new Script1\$1(Script1)/Script1\$1.plusOne(Integer)/Integer.plus(Integer)",
+                6,
+"""
+x = new Object() {
+   def plusOne(rhs) {
+     return rhs+1;
+   }
+}
+x.plusOne(5)
+""")
+    }
+
+    // Groovy doesn't allow this?
+//    void testLocalClass() {
+//        assertIntercept(
+//                "new Foo()/Foo.plusOne(Integer)/Integer.plus(Integer)",
+//                7,
+//"""
+//class Foo {
+//   def plusTwo(rhs) {
+//     class Bar { def plusOne(rhs) { rhs + 2; } }
+//     return new Bar().plusOne(rhs)+1;
+//   }
+//}
+//new Foo().plusTwo(5)
+//""")
+//    }
 }
