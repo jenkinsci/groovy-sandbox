@@ -4,7 +4,7 @@
   <parent>
     <groupId>org.kohsuke</groupId>
     <artifactId>pom</artifactId>
-    <version>3</version>
+    <version>6</version>
   </parent>
 
   <artifactId>groovy-sandbox</artifactId>
