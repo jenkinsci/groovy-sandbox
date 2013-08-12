@@ -265,4 +265,22 @@ public class Checker {
     public static Object checkedBinaryOp(Object lhs, int op, Object rhs) throws Throwable {
         return checkedCall(lhs,false,false,Ops.binaryOperatorMethods(op),rhs);
     }
+
+    /**
+     * A compare method that invokes a.equals(b) or a.compareTo(b)==0
+     */
+    public static Object checkedComparison(Object lhs, final int op, Object rhs) throws Throwable {
+        return new SingleArgInvokerChain() {
+            public Object call(Object lhs, String method, Object rhs) throws Throwable {
+                if (chain.hasNext()) {
+                    // based on what ScriptBytecodeAdapter actually does
+                    return chain.next().onMethodCall(this, lhs,
+                            lhs instanceof Comparable ? "compareTo" : "equals",rhs);
+                } else {
+                    return InvokerHelper.invokeStaticMethod(ScriptBytecodeAdapter.class,
+                            Ops.binaryOperatorMethods(op), new Object[]{lhs,rhs});
+                }
+            }
+        }.call(lhs, null, rhs);
+    }
 }

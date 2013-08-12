@@ -30,6 +30,10 @@ public class Ops {
         return v;
     }
 
+    public static boolean isComparisionOperator(int type) {
+        return Types.ofType(type,COMPARISON_OPERATOR);
+    }
+
     // see http://groovy.codehaus.org/Operator+Overloading
     static {
         Map<Integer, Integer> c = compoundAssignmentToBinaryOperator;
@@ -64,7 +68,13 @@ public class Ops {
         b.put(RIGHT_SHIFT,"rightShift");
         b.put(RIGHT_SHIFT_UNSIGNED,"rightShiftUnsigned");
 
-        // TODO: compare methods seem to be handled bit differently
+        b.put(COMPARE_EQUAL,"compareEqual");
+        b.put(COMPARE_NOT_EQUAL,"compareNotEqual");
+        b.put(COMPARE_LESS_THAN,"compareLessThan");
+        b.put(COMPARE_LESS_THAN_EQUAL,"compareLessThanEqual");
+        b.put(COMPARE_GREATER_THAN,"compareGreaterThan");
+        b.put(COMPARE_GREATER_THAN_EQUAL,"compareGreaterThanEqual");
+        b.put(COMPARE_TO,"compareTo");
 
     }
 }

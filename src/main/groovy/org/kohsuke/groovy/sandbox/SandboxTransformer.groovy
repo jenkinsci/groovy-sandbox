@@ -21,6 +21,7 @@ import org.codehaus.groovy.syntax.Types
 import org.codehaus.groovy.ast.expr.FieldExpression
 import org.codehaus.groovy.ast.expr.VariableExpression
 import org.kohsuke.groovy.sandbox.impl.Checker
+import org.kohsuke.groovy.sandbox.impl.Ops
 
 import static org.codehaus.groovy.syntax.Types.*
 
@@ -245,6 +246,15 @@ class SandboxTransformer extends CompilationCustomizer {
                                 transform(exp.leftExpression),
                                 transform(exp.rightExpression)
                         ])
+                } else
+                if (Ops.isComparisionOperator(exp.operation.type)) {
+                    if (interceptMethodCall) {
+                        return makeCheckedCall("checkedComparison", [
+                                transform(exp.leftExpression),
+                                intExp(exp.operation.type),
+                                transform(exp.rightExpression)
+                        ])
+                    }
                 } else
                 if (interceptMethodCall) {
                     // normally binary operators like a+b

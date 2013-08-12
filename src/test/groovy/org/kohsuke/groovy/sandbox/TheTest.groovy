@@ -222,10 +222,11 @@ intArray[1] <<= 3;
 
     void testComparison() {
         assertIntercept(
-                "[I[Integer]/Integer.leftShift(Integer)/[I[Integer]=Integer",
+                "Point.equals(Point)/Integer.compareTo(Integer)",
                 true,
 """
 point==point
+5==5
 """)
     }
 }
