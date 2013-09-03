@@ -27,6 +27,7 @@ public class Checker {
     // TODO: we need an owner class
     public static Object checkedCall(Object _receiver, boolean safe, boolean spread, Object _method, Object... _args) throws Throwable {
         if (safe && _receiver==null)     return null;
+        _args = fixNull(_args);
         if (spread) {
             List<Object> r = new ArrayList<Object>();
             Iterator itr = InvokerHelper.asIterator(_receiver);
@@ -79,7 +80,7 @@ public class Checker {
                 else
                     return fakeCallSite(method).callStatic((Class)receiver,args);
             }
-        }.call(_receiver,_method,_args);
+        }.call(_receiver,_method,fixNull(_args));
     }
 
     public static Object checkedConstructor(Class _type, Object... _args) throws Throwable {
@@ -91,7 +92,7 @@ public class Checker {
                     // I believe the name is unused
                     return fakeCallSite("<init>").callConstructor((Class)receiver,args);
             }
-        }.call(_type,null,_args);
+        }.call(_type,null,fixNull(_args));
     }
 
     public static Object checkedGetProperty(Object _receiver, boolean safe, boolean spread, Object _property) throws Throwable {
@@ -282,5 +283,13 @@ public class Checker {
                 }
             }
         }.call(lhs, null, rhs);
+    }
+
+    /**
+     * Issue #2 revealed that Groovy can call methods with null in the var-arg array,
+     * when it should be passing an Object array of length 1 with null value.
+     */
+    private static Object[] fixNull(Object[] args) {
+        return args==null ? new Object[1] : args;
     }
 }
