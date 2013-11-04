@@ -245,7 +245,7 @@ x.plusOne(5)
     }
 
     void testIssue2() {
-        assertIntercept("new HashMap()/Script1.println(null)",null,"println(new HashMap().dummy);")
+        assertIntercept("new HashMap()/HashMap.dummy/Script1.println(null)",null,"println(new HashMap().dummy);")
         assertIntercept("Script2.println()",null,"println();")
         assertIntercept("Script3.println(null)",null,"println(null);")
     }
