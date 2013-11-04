@@ -8,7 +8,7 @@
   </parent>
 
   <artifactId>groovy-sandbox</artifactId>
-  <version>1.2</version>
+  <version>1.3-SNAPSHOT</version>
 
   <name>Groovy Sandbox</name>
   <description>Executes untrusted Groovy script safely</description>
