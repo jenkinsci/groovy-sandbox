@@ -120,8 +120,8 @@ class SandboxTransformer extends CompilationCustomizer {
          */
         List<Expression> transformArguments(Expression e) {
             if (e instanceof TupleExpression)
-                return e.expressions*.transformExpression(this)
-            return [e.transformExpression(this)];
+                return e.expressions.collect { transform(it) }
+            return [transform(e)];
         }
         
         Expression makeCheckedCall(String name, Collection<Expression> arguments) {

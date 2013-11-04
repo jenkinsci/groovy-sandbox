@@ -250,6 +250,17 @@ x.plusOne(5)
         assertIntercept("Script3.println(null)",null,"println(null);")
     }
 
+    void testSystemExitAsFunction() {
+        assertIntercept("Class.idem(Integer)/Class.idem(Integer)",123,"org.kohsuke.groovy.sandbox.TheTest.idem(org.kohsuke.groovy.sandbox.TheTest.idem(123))")
+    }
+
+    /**
+     * Idempotent function used for testing
+     */
+    public static Object idem(Object o) {
+        return o;
+    }
+
     // Groovy doesn't allow this?
 //    void testLocalClass() {
 //        assertIntercept(
