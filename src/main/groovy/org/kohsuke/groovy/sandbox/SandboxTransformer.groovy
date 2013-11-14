@@ -8,6 +8,7 @@ import org.codehaus.groovy.ast.expr.ClassExpression
 import org.codehaus.groovy.ast.expr.ClosureExpression
 import org.codehaus.groovy.ast.expr.ConstantExpression
 import org.codehaus.groovy.ast.expr.Expression
+import org.codehaus.groovy.ast.expr.ListExpression
 import org.codehaus.groovy.ast.expr.MethodCallExpression
 import org.codehaus.groovy.ast.expr.MethodPointerExpression
 import org.codehaus.groovy.ast.expr.PropertyExpression
@@ -120,10 +121,15 @@ class SandboxTransformer extends CompilationCustomizer {
          * Groovy primarily uses {@link ArgumentListExpression} for this,
          * but the signature doesn't guarantee that. So this method takes care of that.
          */
-        List<Expression> transformArguments(Expression e) {
+        Expression transformArguments(Expression e) {
+            List<Expression> l;
             if (e instanceof TupleExpression)
-                return e.expressions.collect { transform(it) }
-            return [transform(e)];
+                l = e.expressions.collect { transform(it) };
+            else
+                l = [transform(e)];
+
+            // checkdCall expects an array
+            return new MethodCallExpression(new ListExpression(l),"toArray",new ArgumentListExpression());
         }
         
         Expression makeCheckedCall(String name, Collection<Expression> arguments) {
@@ -145,8 +151,9 @@ class SandboxTransformer extends CompilationCustomizer {
                         transform(call.objectExpression),
                         boolExp(call.safe),
                         boolExp(call.spreadSafe),
-                        transform(call.method)
-                    ]+transformArguments(call.arguments))
+                        transform(call.method),
+                        transformArguments(call.arguments)
+                    ])
             }
             
             if (exp instanceof StaticMethodCallExpression && interceptMethodCall) {
@@ -160,8 +167,9 @@ class SandboxTransformer extends CompilationCustomizer {
                 StaticMethodCallExpression call = exp;
                 return makeCheckedCall("checkedStaticCall", [
                             new ClassExpression(call.ownerType),
-                            new ConstantExpression(call.method)
-                    ]+transformArguments(call.arguments))
+                            new ConstantExpression(call.method),
+                            transformArguments(call.arguments)
+                    ])
             }
 
             if (exp instanceof MethodPointerExpression && interceptMethodCall) {
@@ -176,8 +184,9 @@ class SandboxTransformer extends CompilationCustomizer {
                 if (!exp.isSpecialCall()) {
                     // creating a new instance, like "new Foo(...)"
                     return makeCheckedCall("checkedConstructor", [
-                            new ClassExpression(exp.type)
-                    ]+transformArguments(exp.arguments))
+                            new ClassExpression(exp.type),
+                            transformArguments(exp.arguments)
+                    ])
                 } else {
                     // we can't really intercept constructor calling super(...) or this(...),
                     // since it has to be the first method call in a constructor.

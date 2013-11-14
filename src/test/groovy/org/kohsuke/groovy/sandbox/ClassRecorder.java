@@ -26,6 +26,8 @@ public class ClassRecorder extends GroovyInterceptor {
     }
     
     private String type(Class c) {
+        if (c.isArray())
+            return type(c.getComponentType())+"[]";
         String n = c.getName();
         return n.substring(n.lastIndexOf('.')+1);
     }

@@ -1,5 +1,7 @@
 package org.kohsuke.groovy.sandbox
 
+import org.codehaus.groovy.control.customizers.ImportCustomizer
+
 import java.awt.Point
 import junit.framework.TestCase
 import org.codehaus.groovy.control.CompilerConfiguration
@@ -23,6 +25,7 @@ class TheTest extends TestCase {
         binding.intArray = [0,1,2,3,4] as int[]
 
         def cc = new CompilerConfiguration()
+        cc.addCompilationCustomizers(new ImportCustomizer().addImports(TheTest.class.name))
         cc.addCompilationCustomizers(new SandboxTransformer())
         sh = new GroovyShell(binding,cc)
 
@@ -259,6 +262,16 @@ x.plusOne(5)
      */
     public static Object idem(Object o) {
         return o;
+    }
+
+    void testArrayArgumentsInvocation() {
+        assertIntercept('new TheTest$MethodWithArrayArg()/TheTest$MethodWithArrayArg.f(Object[])', 3, "new TheTest.MethodWithArrayArg().f(new Object[3])")
+    }
+
+    public static class MethodWithArrayArg {
+        public Object f(Object[] arg) {
+            return arg.length;
+        }
     }
 
     // Groovy doesn't allow this?

@@ -28,7 +28,7 @@ public class Checker {
 
 
     // TODO: we need an owner class
-    public static Object checkedCall(Object _receiver, boolean safe, boolean spread, String _method, Object... _args) throws Throwable {
+    public static Object checkedCall(Object _receiver, boolean safe, boolean spread, String _method, Object[] _args) throws Throwable {
         if (safe && _receiver==null)     return null;
         _args = fixNull(_args);
         if (spread) {
@@ -108,7 +108,7 @@ public class Checker {
         }
     }
 
-    public static Object checkedStaticCall(Class _receiver, String _method, Object... _args) throws Throwable {
+    public static Object checkedStaticCall(Class _receiver, String _method, Object[] _args) throws Throwable {
         return new VarArgInvokerChain() {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
                 if (chain.hasNext())
@@ -119,7 +119,7 @@ public class Checker {
         }.call(_receiver,_method,fixNull(_args));
     }
 
-    public static Object checkedConstructor(Class _type, Object... _args) throws Throwable {
+    public static Object checkedConstructor(Class _type, Object[] _args) throws Throwable {
         return new VarArgInvokerChain() {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
                 if (chain.hasNext())
@@ -300,7 +300,7 @@ public class Checker {
      * @see BinaryExpressionHelper#evaluateBinaryExpressionWithAssignment
      */
     public static Object checkedBinaryOp(Object lhs, int op, Object rhs) throws Throwable {
-        return checkedCall(lhs,false,false,Ops.binaryOperatorMethods(op),rhs);
+        return checkedCall(lhs,false,false,Ops.binaryOperatorMethods(op),new Object[]{rhs});
     }
 
     /**
