@@ -1,6 +1,7 @@
 package org.kohsuke.groovy.sandbox
 
 import org.codehaus.groovy.control.customizers.ImportCustomizer
+import org.codehaus.groovy.runtime.NullObject
 
 import java.awt.Point
 import junit.framework.TestCase
@@ -272,6 +273,15 @@ x.plusOne(5)
         public Object f(Object[] arg) {
             return arg.length;
         }
+    }
+
+    /**
+     * See issue #6. We are not intercepting calls to null.
+     */
+    void testNull() {
+        assertIntercept("", NullObject.class, "x=null; null.getClass()")
+        assertIntercept("", "null3", "x=null; x.plus('3')")
+        assertIntercept("", false, "x=null; x==3")
     }
 
     // Groovy doesn't allow this?

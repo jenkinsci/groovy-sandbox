@@ -84,6 +84,14 @@ public class Checker {
                 }
             }
 
+            if (_receiver==null) {
+                // See issue #6. Technically speaking Groovy handles this
+                // as if NullObject.INSTANCE is invoked. OTOH, it's confusing
+                // to GroovyInterceptor that the receiver can be null, so I'm
+                // bypassing the checker in this case.
+                return fakeCallSite(_method).call(_receiver,_args);
+            }
+
             /*
                 The third try:
 
@@ -307,6 +315,11 @@ public class Checker {
      * A compare method that invokes a.equals(b) or a.compareTo(b)==0
      */
     public static Object checkedComparison(Object lhs, final int op, Object rhs) throws Throwable {
+        if (lhs==null) {// bypass the checker if lhs is null, as it will not result in any calls that will require protection anyway
+            return InvokerHelper.invokeStaticMethod(ScriptBytecodeAdapter.class,
+                    Ops.binaryOperatorMethods(op), new Object[]{lhs,rhs});
+        }
+
         return new SingleArgInvokerChain() {
             public Object call(Object lhs, String method, Object rhs) throws Throwable {
                 if (chain.hasNext()) {
