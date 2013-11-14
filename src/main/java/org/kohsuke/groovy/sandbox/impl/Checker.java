@@ -1,5 +1,8 @@
 package org.kohsuke.groovy.sandbox.impl;
 
+import groovy.lang.MetaClass;
+import groovy.lang.MetaClassImpl;
+import groovy.lang.MetaMethod;
 import org.codehaus.groovy.classgen.asm.BinaryExpressionHelper;
 import org.codehaus.groovy.runtime.InvokerHelper;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
@@ -25,7 +28,7 @@ public class Checker {
 
 
     // TODO: we need an owner class
-    public static Object checkedCall(Object _receiver, boolean safe, boolean spread, Object _method, Object... _args) throws Throwable {
+    public static Object checkedCall(Object _receiver, boolean safe, boolean spread, String _method, Object... _args) throws Throwable {
         if (safe && _receiver==null)     return null;
         _args = fixNull(_args);
         if (spread) {
@@ -49,6 +52,35 @@ public class Checker {
 //            return m.invoke(receiver,args);
 
             /*
+                When Groovy evaluates expression like "FooClass.bar()", it routes the call here.
+                (as to why we cannot rewrite the expression to statically route the call to checkedStaticCall,
+                consider "def x = FooClass.class; x.bar()", which still resolves to FooClass.bar() if it is present!)
+
+                So this is where we really need to distinguish a call to a static method defined on the class
+                vs an instance method call to a method on java.lang.Class.
+
+                Then the question is how do we know when to do which, which one takes precedence, etc.
+                Groovy doesn't commit to any specific logic at the level of MetaClass. In MetaClassImpl,
+                the logic is defined in MetaClassImpl.pickStaticMethod.
+
+                BTW, this makes me wonder if StaticMethodCallExpression is used at all in AST, and it looks like
+                this is no longer used.
+             */
+
+            if (_receiver instanceof Class) {
+                MetaClass mc = InvokerHelper.getMetaClass((Class)_receiver);
+                if (mc instanceof MetaClassImpl) {
+                    MetaClassImpl mci = (MetaClassImpl) mc;
+                    MetaMethod m = mci.retrieveStaticMethod(_method,_args);
+                    if (m!=null) {
+                        if (m.isStatic()) {
+                            return checkedStaticCall((Class)_receiver,_method,_args);
+                        }
+                    }
+                }
+            }
+
+            /*
                 The third try:
 
                 Groovyc produces one CallSites instance per a call site, then
@@ -68,7 +100,7 @@ public class Checker {
                     else
                         return fakeCallSite(method).call(receiver,args);
                 }
-            }.call(_receiver,_method.toString(),_args);
+            }.call(_receiver,_method,_args);
         }
     }
 
