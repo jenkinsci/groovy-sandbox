@@ -117,7 +117,7 @@ class TheTest extends TestCase {
         
         // array set & get
         assertIntercept(
-                "[I[Integer]=Integer/[I[Integer]",
+                "int[][Integer]=Integer/int[][Integer]",
                 1,
                 "x=new int[3];x[0]=1;x[0]"
         )
@@ -217,7 +217,7 @@ point.x += 3
     void testCompoundAssignment2() {
         // "[I" is the type name of int[]
         assertIntercept(
-                "[I[Integer]/Integer.leftShift(Integer)/[I[Integer]=Integer",
+                "int[][Integer]/Integer.leftShift(Integer)/int[][Integer]=Integer",
                 1<<3,
 """
 intArray[1] <<= 3;

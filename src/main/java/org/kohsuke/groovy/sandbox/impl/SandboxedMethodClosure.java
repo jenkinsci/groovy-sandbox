@@ -3,6 +3,8 @@ package org.kohsuke.groovy.sandbox.impl;
 import org.codehaus.groovy.runtime.InvokerInvocationException;
 import org.codehaus.groovy.runtime.MethodClosure;
 
+import static org.codehaus.groovy.runtime.InvokerHelper.*;
+
 /**
  * {@link MethodClosure} that checks the call.
  *
@@ -16,7 +18,7 @@ public class SandboxedMethodClosure extends MethodClosure {
     @Override
     protected Object doCall(Object arguments) {
         try {
-            return Checker.checkedCall(getOwner(), false, false, getMethod(), arguments);
+            return Checker.checkedCall(getOwner(), false, false, getMethod(), asArray(arguments));
         } catch (Throwable e) {
             throw new InvokerInvocationException(e);
         }
