@@ -74,7 +74,11 @@ public class Checker {
                     MetaMethod m = mci.retrieveStaticMethod(_method,_args);
                     if (m!=null) {
                         if (m.isStatic()) {
-                            return checkedStaticCall((Class)_receiver,_method,_args);
+                            // Foo.forName() still finds Class.forName() method, so we need to test for that
+                            if (m.getDeclaringClass().getTheClass()==Class.class)
+                                return checkedStaticCall(Class.class,_method,_args);
+                            else
+                                return checkedStaticCall((Class)_receiver,_method,_args);
                         }
                     }
                 }

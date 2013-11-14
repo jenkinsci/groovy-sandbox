@@ -49,7 +49,7 @@ class TheTest extends TestCase {
     void testOK() {
         // instance call
         assertIntercept(
-                "Integer.class/Class.forName(String)",
+                "Integer.class/Class:forName(String)",
                 String.class,
                 "5.class.forName('java.lang.String')")
 
@@ -61,13 +61,13 @@ class TheTest extends TestCase {
 
         // static call
         assertIntercept(// turns out this doesn't actually result in onStaticCall
-                "Class.max(Float,Float)",
+                "Math:max(Float,Float)",
                 Math.max(1f,2f),
                 "Math.max(1f,2f)"
         )
 
         assertIntercept(// ... but this does
-                "Math.max(Float,Float)",
+                "Math:max(Float,Float)",
                 Math.max(1f,2f),
                 "import static java.lang.Math.*; max(1f,2f)"
         )
@@ -121,7 +121,7 @@ class TheTest extends TestCase {
 
     void testClosure() {
         assertIntercept(
-                "Script1\$_run_closure1.call()/Integer.class/Class.forName(String)",
+                "Script1\$_run_closure1.call()/Integer.class/Class:forName(String)",
                 null,
                 "def foo = { 5.class.forName('java.lang.String') }\n" +
                 "foo()\n" +
@@ -130,14 +130,14 @@ class TheTest extends TestCase {
 
     void testClass() {
         assertIntercept(
-                "Integer.class/Class.forName(String)",
+                "Integer.class/Class:forName(String)",
                 null,
                 "class foo { static void main(String[] args) { 5.class.forName('java.lang.String') } }")
     }
 
     void testInnerClass() {
         assertIntercept(
-                "Class.juu()/Integer.class/Class.forName(String)",
+                "foo\$bar:juu()/Integer.class/Class:forName(String)",
                 null,
                 "class foo {\n" +
                 "  class bar {\n" +
@@ -149,7 +149,7 @@ class TheTest extends TestCase {
 
     void testStaticInitializationBlock() {
         assertIntercept(
-                "Integer.class/Class.forName(String)",
+                "Integer.class/Class:forName(String)",
                 null,
                 "class foo {\n" +
                 "static { 5.class.forName('java.lang.String') }\n" +
@@ -159,7 +159,7 @@ class TheTest extends TestCase {
 
     void testConstructor() {
         assertIntercept(
-                "new foo()/Integer.class/Class.forName(String)",
+                "new foo()/Integer.class/Class:forName(String)",
                 null,
                 "class foo {\n" +
                 "foo() { 5.class.forName('java.lang.String') }\n" +
@@ -170,7 +170,7 @@ class TheTest extends TestCase {
 
     void testInitializationBlock() {
         assertIntercept(
-                "new foo()/Integer.class/Class.forName(String)",
+                "new foo()/Integer.class/Class:forName(String)",
                 null,
                 "class foo {\n" +
                         "{ 5.class.forName('java.lang.String') }\n" +
@@ -181,7 +181,7 @@ class TheTest extends TestCase {
 
     void testFieldInitialization() {
         assertIntercept(
-                "new foo()/Integer.class/Class.forName(String)",
+                "new foo()/Integer.class/Class:forName(String)",
                 null,
                 "class foo {\n" +
                         "def obj = 5.class.forName('java.lang.String')\n" +
@@ -192,7 +192,7 @@ class TheTest extends TestCase {
 
     void testStaticFieldInitialization() {
         assertIntercept(
-                "Integer.class/Class.forName(String)/new foo()",
+                "Integer.class/Class:forName(String)/new foo()",
                 null,
                 "class foo {\n" +
                         "static obj = 5.class.forName('java.lang.String')\n" +
@@ -251,7 +251,7 @@ x.plusOne(5)
     }
 
     void testSystemExitAsFunction() {
-        assertIntercept("Class.idem(Integer)/Class.idem(Integer)",123,"org.kohsuke.groovy.sandbox.TheTest.idem(org.kohsuke.groovy.sandbox.TheTest.idem(123))")
+        assertIntercept("TheTest:idem(Integer)/TheTest:idem(Integer)",123,"org.kohsuke.groovy.sandbox.TheTest.idem(org.kohsuke.groovy.sandbox.TheTest.idem(123))")
     }
 
     /**

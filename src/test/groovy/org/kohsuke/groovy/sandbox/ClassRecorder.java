@@ -47,7 +47,7 @@ public class ClassRecorder extends GroovyInterceptor {
 
     @Override
     public Object onStaticCall(Invoker invoker, Class receiver, String method, Object... args) throws Throwable {
-        format("%s.%s(%s)",type(receiver),method,arguments(args));
+        format("%s:%s(%s)",type(receiver),method,arguments(args));
         return super.onStaticCall(invoker, receiver, method, args);
     }
 
