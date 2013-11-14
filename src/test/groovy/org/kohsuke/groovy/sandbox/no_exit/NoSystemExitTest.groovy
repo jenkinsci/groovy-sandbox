@@ -43,7 +43,7 @@ class NoSystemExitTest extends TestCase {
         assertFail("System.exit(-1)")
         assertFail("foo(System.exit(-1))")
         assertFail("System.exit(-1)==System.exit(-1)")
-//        assertFail("def x=System.&exit; x(-1)")
+        assertFail("def x=System.&exit; x(-1)")
 
         println "Look ma, I'm still alive"
 

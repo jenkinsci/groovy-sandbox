@@ -9,6 +9,7 @@ import org.codehaus.groovy.ast.expr.ClosureExpression
 import org.codehaus.groovy.ast.expr.ConstantExpression
 import org.codehaus.groovy.ast.expr.Expression
 import org.codehaus.groovy.ast.expr.MethodCallExpression
+import org.codehaus.groovy.ast.expr.MethodPointerExpression
 import org.codehaus.groovy.ast.expr.PropertyExpression
 import org.codehaus.groovy.ast.expr.StaticMethodCallExpression
 import org.codehaus.groovy.ast.expr.TupleExpression
@@ -23,6 +24,7 @@ import org.codehaus.groovy.ast.expr.FieldExpression
 import org.codehaus.groovy.ast.expr.VariableExpression
 import org.kohsuke.groovy.sandbox.impl.Checker
 import org.kohsuke.groovy.sandbox.impl.Ops
+import org.kohsuke.groovy.sandbox.impl.SandboxedMethodClosure
 
 import static org.codehaus.groovy.syntax.Types.*
 
@@ -160,6 +162,14 @@ class SandboxTransformer extends CompilationCustomizer {
                             new ClassExpression(call.ownerType),
                             new ConstantExpression(call.method)
                     ]+transformArguments(call.arguments))
+            }
+
+            if (exp instanceof MethodPointerExpression && interceptMethodCall) {
+                MethodPointerExpression mpe = exp;
+                return new ConstructorCallExpression(
+                        new ClassNode(SandboxedMethodClosure.class),
+                        new ArgumentListExpression(mpe.expression, mpe.methodName)
+                )
             }
 
             if (exp instanceof ConstructorCallExpression && interceptConstructor) {
