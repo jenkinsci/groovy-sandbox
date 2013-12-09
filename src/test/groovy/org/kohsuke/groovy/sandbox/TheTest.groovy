@@ -284,6 +284,18 @@ x.plusOne(5)
         assertIntercept("", false, "x=null; x==3")
     }
 
+    /**
+     * See issue #9
+     */
+    void testAnd() {
+        assertIntercept("", NullObject.class, """
+            String s = null
+            if (s != null && s.length > 0) println 'oops'
+            println 'yeah'
+            """)
+    }
+
+
     // Groovy doesn't allow this?
 //    void testLocalClass() {
 //        assertIntercept(
