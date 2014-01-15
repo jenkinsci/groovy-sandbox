@@ -288,11 +288,17 @@ x.plusOne(5)
      * See issue #9
      */
     void testAnd() {
-        assertIntercept("", NullObject.class, """
+        assertIntercept("", false, """
             String s = null
-            if (s != null && s.length > 0) println 'oops'
-            println 'yeah'
+            if (s != null && s.length > 0)
+              throw new Exception();
+            return false;
             """)
+    }
+
+    void testLogicalNotEquals() {
+        assertIntercept("Integer.toString()/String.compareTo(String)", true,
+                "def x = 3.toString(); if (x != '') return true; else return false;")
     }
 
 

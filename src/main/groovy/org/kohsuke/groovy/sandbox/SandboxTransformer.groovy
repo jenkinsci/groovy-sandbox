@@ -146,6 +146,10 @@ class SandboxTransformer extends CompilationCustomizer {
             }
 
             if (exp instanceof MethodCallExpression && interceptMethodCall) {
+                // lhs.foo(arg1,arg2) => checkedCall(lhs,"foo",arg1,arg2)
+                // lhs+rhs => lhs.plus(rhs)
+                // Integer.plus(Integer) => DefaultGroovyMethods.plus
+                // lhs || rhs => lhs.or(rhs)
                 MethodCallExpression call = exp;
                 return makeCheckedCall("checkedCall",[
                         transform(call.objectExpression),
@@ -271,6 +275,9 @@ class SandboxTransformer extends CompilationCustomizer {
                                 transform(exp.leftExpression),
                                 transform(exp.rightExpression)
                         ])
+                } else
+                if (Ops.isLogicalOperator(exp.operation.type)) {
+                    return super.transform(exp);
                 } else
                 if (Ops.isComparisionOperator(exp.operation.type)) {
                     if (interceptMethodCall) {

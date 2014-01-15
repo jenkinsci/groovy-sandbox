@@ -34,6 +34,11 @@ public class Ops {
         return Types.ofType(type,COMPARISON_OPERATOR);
     }
 
+    public static boolean isLogicalOperator(int type) {
+        return Types.ofType(type,LOGICAL_OPERATOR);
+    }
+
+
     // see http://groovy.codehaus.org/Operator+Overloading
     static {
         Map<Integer, Integer> c = compoundAssignmentToBinaryOperator;
