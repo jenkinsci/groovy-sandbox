@@ -299,6 +299,9 @@ class SandboxTransformer extends CompilationCustomizer {
                     } else
                     if (lhs instanceof VariableExpression) {
                         // We don't care what sandboxed code does to itself until it starts interacting with outside world
+                        // TODO: what looks like a variable expression could turn into a property access, so
+                        // this needs to be intercepted and rewritten. See AsmClassGenerator.visitVariableExpression
+                        // (which tracks in-scope variables)
                         return super.transform(exp);
                     } else
                     if (lhs instanceof BinaryExpression) {
