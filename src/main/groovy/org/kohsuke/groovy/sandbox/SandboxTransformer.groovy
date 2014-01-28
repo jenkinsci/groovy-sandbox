@@ -27,6 +27,7 @@ import org.kohsuke.groovy.sandbox.impl.Checker
 import org.kohsuke.groovy.sandbox.impl.Ops
 import org.kohsuke.groovy.sandbox.impl.SandboxedMethodClosure
 
+import static org.codehaus.groovy.ast.expr.ArgumentListExpression.EMPTY_ARGUMENTS
 import static org.codehaus.groovy.syntax.Types.*
 
 /**
@@ -110,10 +111,44 @@ class SandboxTransformer extends CompilationCustomizer {
     }
 
     class VisitorImpl extends ClassCodeExpressionTransformer {
-        private SourceUnit sourceUnit;
+        private final SourceUnit sourceUnit;
+        /**
+         * Invocation/property access without the left-hand side expression (for example {@code foo()}
+         * as opposed to {@code something.foo()} means {@code this.foo()} in Java, but this is not
+         * so in Groovy.
+         *
+         * In Groovy, {@code foo()} inside a closure uses the closure object itself as the lhs value,
+         * whereas {@code this} in closure refers to a nearest enclosing non-closure object.
+         *
+         * So we cannot always expand {@code foo()} to {@code this.foo()}.
+         *
+         * To keep track of when we can expand {@code foo()} to {@code this.foo()} and when we can't,
+         * we maintain this flag as we visit the expression tree. This flag is set to true
+         * while we are visiting the body of the closure (the part between { ... }), and switched
+         * back to false as we visit inner classes.
+         *
+         * To correctly expand {@code foo()} in the closure requires an access to the closure object itself,
+         * and unfortunately Groovy doesn't seem to have any reliable way to do this. The hack I came up
+         * with is {@code asWritable().getOwner()}, but even that is subject to the method resolution rule.
+         *
+         */
+        private boolean visitingClosureBody;
 
         VisitorImpl(SourceUnit sourceUnit) {
             this.sourceUnit = sourceUnit
+        }
+
+        /**
+         * Push/pop the flag while we evaluate the body.
+         */
+        private void visitClosure(boolean flag, Closure body) {
+            boolean old = visitingClosureBody;
+            visitingClosureBody = flag;
+            try {
+                body.call();
+            } finally {
+                visitingClosureBody = old;
+            }
         }
 
         /**
@@ -142,7 +177,9 @@ class SandboxTransformer extends CompilationCustomizer {
             if (exp instanceof ClosureExpression) {
                 // ClosureExpression.transformExpression doesn't visit the code inside
                 ClosureExpression ce = (ClosureExpression)exp;
-                ce.code.visit(this)
+                visitClosure(true) {
+                    ce.code.visit(this)
+                }
             }
 
             if (exp instanceof MethodCallExpression && interceptMethodCall) {
@@ -151,8 +188,15 @@ class SandboxTransformer extends CompilationCustomizer {
                 // Integer.plus(Integer) => DefaultGroovyMethods.plus
                 // lhs || rhs => lhs.or(rhs)
                 MethodCallExpression call = exp;
+
+                def lhs;
+                if (exp.isImplicitThis() && visitingClosureBody)
+                    lhs = CLOSURE_THIS;
+                else
+                    lhs = transform(call.objectExpression)
+
                 return makeCheckedCall("checkedCall",[
-                        transform(call.objectExpression),
+                        lhs,
                         boolExp(call.safe),
                         boolExp(call.spreadSafe),
                         transform(call.method),
@@ -318,4 +362,18 @@ class SandboxTransformer extends CompilationCustomizer {
     }
 
     static final def checkerClass = new ClassNode(Checker.class)
+
+    /**
+     * Expression that accesses the closure object itself from within the closure.
+     *
+     * Currently a hacky "asWritable().getOwner()"
+     */
+    static final Expression CLOSURE_THIS;
+
+    static {
+        def aw = new MethodCallExpression(new VariableExpression("this"),"asWritable",EMPTY_ARGUMENTS)
+        aw.implicitThis = true;
+
+        CLOSURE_THIS = new MethodCallExpression(aw,"getOwner",EMPTY_ARGUMENTS);
+    }
 }

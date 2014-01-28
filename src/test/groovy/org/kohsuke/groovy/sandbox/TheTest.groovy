@@ -301,6 +301,37 @@ x.plusOne(5)
                 "def x = 3.toString(); if (x != '') return true; else return false;")
     }
 
+    // see issue 8
+    void testClosureDelegation() {
+        // TODO: ideally we should be seeing String.length()
+        // doing so requires a call site selection and deconstruction
+        assertIntercept("Script1.c()/Script1\$_run_closure1.length()", 3, """
+            def x = 0;
+            c = { ->
+                delegate = "foo";
+                x = length();
+            }
+            c();
+
+            x;
+        """)
+    }
+
+    void testClosureDelegationOwner() {
+        // TODO: ideally we should be seeing String.length()
+        // doing so requires a call site selection and deconstruction
+        assertIntercept("Script1.c()/Script1\$_run_closure1_closure2.call()/Script1\$_run_closure1_closure2.length()", 3, """
+            def x = 0;
+            c = { ->
+                delegate = "foo";
+                { -> x = length(); }();
+            }
+            c();
+
+            x;
+        """)
+    }
+
 
     // Groovy doesn't allow this?
 //    void testLocalClass() {
