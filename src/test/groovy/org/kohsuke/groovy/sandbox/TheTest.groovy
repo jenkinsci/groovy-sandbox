@@ -26,7 +26,7 @@ class TheTest extends TestCase {
         binding.intArray = [0,1,2,3,4] as int[]
 
         def cc = new CompilerConfiguration()
-        cc.addCompilationCustomizers(new ImportCustomizer().addImports(TheTest.class.name))
+        cc.addCompilationCustomizers(new ImportCustomizer().addImports(TheTest.class.name).addStarImports("org.kohsuke.groovy.sandbox"))
         cc.addCompilationCustomizers(new SandboxTransformer())
         sh = new GroovyShell(binding,cc)
 
@@ -332,6 +332,35 @@ x.plusOne(5)
         """)
     }
 
+    void testClosureDelegationProperty() {
+        // TODO: ideally we should be seeing String.length()
+        // doing so requires a call site selection and deconstruction
+        assertIntercept("Script1.c()/new SomeBean(Integer,Integer)/Integer.plus(Integer)", 3, """
+            def sum = 0;
+            c = { ->
+                delegate = new SomeBean(1,2);
+                sum = x+y;
+            }
+            c();
+
+            sum;
+        """)
+    }
+
+    void testClosureDelegationPropertyOwner() {
+        // TODO: ideally we should be seeing String.length()
+        // doing so requires a call site selection and deconstruction
+        assertIntercept("Script1.c()/new SomeBean(Integer,Integer)/Script1\$_run_closure1_closure2.call()/Integer.plus(Integer)", 3, """
+            def sum = 0;
+            c = { ->
+                delegate = new SomeBean(1,2);
+                { -> sum = x+y; }();
+            }
+            c();
+
+            sum;
+        """)
+    }
 
     // Groovy doesn't allow this?
 //    void testLocalClass() {

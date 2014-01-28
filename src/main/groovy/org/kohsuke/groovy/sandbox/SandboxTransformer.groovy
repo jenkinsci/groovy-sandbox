@@ -189,14 +189,14 @@ class SandboxTransformer extends CompilationCustomizer {
                 // lhs || rhs => lhs.or(rhs)
                 MethodCallExpression call = exp;
 
-                def lhs;
+                def objExp;
                 if (exp.isImplicitThis() && visitingClosureBody)
-                    lhs = CLOSURE_THIS;
+                    objExp = CLOSURE_THIS;
                 else
-                    lhs = transform(call.objectExpression)
+                    objExp = transform(call.objectExpression)
 
                 return makeCheckedCall("checkedCall",[
-                        lhs,
+                        objExp,
                         boolExp(call.safe),
                         boolExp(call.spreadSafe),
                         transform(call.method),
@@ -252,7 +252,7 @@ class SandboxTransformer extends CompilationCustomizer {
 
             if (exp instanceof PropertyExpression && interceptProperty) {
                 return makeCheckedCall("checkedGetProperty", [
-                    transform(exp.objectExpression),
+                    transformObjectExpression(exp),
                     boolExp(exp.safe),
                     boolExp(exp.spreadSafe),
                     transform(exp.property)
@@ -283,7 +283,7 @@ class SandboxTransformer extends CompilationCustomizer {
                             return super.transform(exp);
 
                         return makeCheckedCall(name, [
-                                lhs.objectExpression,
+                                transformObjectExpression(lhs),
                                 lhs.property,
                                 boolExp(lhs.safe),
                                 boolExp(lhs.spreadSafe),
@@ -344,6 +344,18 @@ class SandboxTransformer extends CompilationCustomizer {
             }
 
             return super.transform(exp)
+        }
+
+        /**
+         * See {@link #visitingClosureBody} for the details of what this method is about.
+         */
+        private Expression transformObjectExpression(PropertyExpression exp) {
+            def objExp;
+            if (exp.isImplicitThis() && visitingClosureBody)
+                objExp = CLOSURE_THIS;
+            else
+                objExp = transform(exp.objectExpression)
+            objExp
         }
 
         ConstantExpression boolExp(boolean v) {
