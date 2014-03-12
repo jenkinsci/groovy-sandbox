@@ -362,6 +362,13 @@ x.plusOne(5)
         """)
     }
 
+    void testGString() {
+        assertIntercept("Integer.plus(Integer)/Integer.plus(Integer)", "answer=6", '''
+            def x = "answer=${1+2+3}";
+            x;
+        ''')
+    }
+
     // Groovy doesn't allow this?
 //    void testLocalClass() {
 //        assertIntercept(
