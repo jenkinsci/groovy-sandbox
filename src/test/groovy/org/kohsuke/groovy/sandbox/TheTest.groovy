@@ -369,6 +369,23 @@ x.plusOne(5)
         ''')
     }
 
+    void testClosurePropertyAccess() {
+        // ideally we'd like the interceptor to know that Closure.getProperty() is delegating to the owner
+        // and the message is routed to Exception.message, but that logic is dependent on Closure.getProperty()
+        // implementation that can be overridden.
+        assertIntercept("""
+Script1\$_run_closure1.call()
+new Exception(String)
+Script1\$_run_closure1.delegate=Exception
+Script1\$_run_closure1.message
+""","foo","""
+        { ->
+            delegate = new Exception("foo");
+            return message;
+        }();
+""")
+    }
+
     // Groovy doesn't allow this?
 //    void testLocalClass() {
 //        assertIntercept(

@@ -259,6 +259,20 @@ class SandboxTransformer extends CompilationCustomizer {
                 ])
             }
 
+            if (exp instanceof VariableExpression && interceptProperty) {
+                VariableExpression vexp = exp;
+                if (isLocalVariable(vexp.name) || vexp.name=="this" || vexp.name=="super") {
+                    // We don't care what sandboxed code does to itself until it starts interacting with outside world
+                    return super.transform(exp);
+                } else {
+                    // if the variable is not in-scope local variable, it gets treated as a property access with implicit this.
+                    // see AsmClassGenerator.visitVariableExpression and processClassVariable.
+                    PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, vexp.name);
+                    pexp.implicitThis = true;
+                    return transform(pexp);
+                }
+            }
+
             if (exp instanceof BinaryExpression) {
                 // this covers everything from a+b to a=b
                 if (ofType(exp.operation.type,ASSIGNMENT_OPERATOR)) {
@@ -270,6 +284,20 @@ class SandboxTransformer extends CompilationCustomizer {
                     // according to AsmClassGenerator, PropertyExpression, AttributeExpression, FieldExpression, VariableExpression
 
                     Expression lhs = exp.leftExpression;
+                    if (lhs instanceof VariableExpression) {
+                        VariableExpression vexp = lhs;
+                        if (isLocalVariable(vexp.name) || vexp.name=="this" || vexp.name=="super") {
+                            // We don't care what sandboxed code does to itself until it starts interacting with outside world
+                            return super.transform(exp);
+                        } else {
+                            // if the variable is not in-scope local variable, it gets treated as a property access with implicit this.
+                            // see AsmClassGenerator.visitVariableExpression and processClassVariable.
+                            PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, vexp.name);
+                            pexp.implicitThis = true;
+
+                            lhs = pexp;
+                        }
+                    } // no else here
                     if (lhs instanceof PropertyExpression) {
                         def name = null;
                         if (lhs instanceof AttributeExpression) {
@@ -295,13 +323,6 @@ class SandboxTransformer extends CompilationCustomizer {
                         // while javadoc of FieldExpression isn't very clear,
                         // AsmClassGenerator maps this to GETSTATIC/SETSTATIC/GETFIELD/SETFIELD access.
                         // not sure how we can intercept this, so skipping this for now
-                        return super.transform(exp);
-                    } else
-                    if (lhs instanceof VariableExpression) {
-                        // We don't care what sandboxed code does to itself until it starts interacting with outside world
-                        // TODO: what looks like a variable expression could turn into a property access, so
-                        // this needs to be intercepted and rewritten. See AsmClassGenerator.visitVariableExpression
-                        // (which tracks in-scope variables)
                         return super.transform(exp);
                     } else
                     if (lhs instanceof BinaryExpression) {
