@@ -1,6 +1,5 @@
 package org.kohsuke.groovy.sandbox
 
-import org.codehaus.groovy.ast.ClassCodeExpressionTransformer
 import org.codehaus.groovy.ast.ClassNode
 import org.codehaus.groovy.ast.expr.ArgumentListExpression
 import org.codehaus.groovy.ast.expr.AttributeExpression
@@ -110,7 +109,7 @@ class SandboxTransformer extends CompilationCustomizer {
         classNode?.fields?.each { visitor.visitField(it) }
     }
 
-    class VisitorImpl extends ClassCodeExpressionTransformer {
+    class VisitorImpl extends ScopeTrackingClassCodeExpressionTransformer {
         private final SourceUnit sourceUnit;
         /**
          * Invocation/property access without the left-hand side expression (for example {@code foo()}
@@ -150,6 +149,7 @@ class SandboxTransformer extends CompilationCustomizer {
                 visitingClosureBody = old;
             }
         }
+
 
         /**
          * Transforms the arguments of a call.
