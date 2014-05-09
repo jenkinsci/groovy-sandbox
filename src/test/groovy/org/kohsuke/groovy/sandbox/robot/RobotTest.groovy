@@ -48,12 +48,14 @@ class RobotTest extends TestCase {
         eval("robot.leftArm.wave(3)")
         eval("[robot.@leftArm,robot.@rightArm]*.wave(3)")
         eval("if (robot.leftArm!=null) robot.leftArm.wave(1)")
+        eval("def c = { x -> x.leftArm.wave(3) }; c(robot);")
 
         // these are not
         assertFail("robot.brain")
         assertFail("robot.@brain")
         assertFail("robot['brain']")
         assertFail("System.exit(-1)")
+        assertFail("def c = { -> delegate = System; exit(-1) }; c();")
         assertFail("Class.forName('java.lang.String')")
         assertFail("'foo'.class.name")
         assertFail("new java.awt.Point(1,2)")

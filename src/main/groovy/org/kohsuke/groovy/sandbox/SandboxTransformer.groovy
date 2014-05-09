@@ -1,6 +1,7 @@
 package org.kohsuke.groovy.sandbox
 
 import org.codehaus.groovy.ast.ClassNode
+import org.codehaus.groovy.ast.Parameter
 import org.codehaus.groovy.ast.expr.ArgumentListExpression
 import org.codehaus.groovy.ast.expr.AttributeExpression
 import org.codehaus.groovy.ast.expr.ClassExpression
@@ -178,8 +179,13 @@ class SandboxTransformer extends CompilationCustomizer {
             if (exp instanceof ClosureExpression) {
                 // ClosureExpression.transformExpression doesn't visit the code inside
                 ClosureExpression ce = (ClosureExpression)exp;
-                visitClosure(true) {
-                    ce.code.visit(this)
+                withVarScope {
+                    for (Parameter p : ce.parameters) {
+                        declareVariable(p);
+                    }
+                    visitClosure(true) {
+                        ce.code.visit(this)
+                    }
                 }
             }
 

@@ -12,7 +12,7 @@ class RobotSandbox extends GroovyValueFilter {
     Object filter(Object o) {
         if (o==null || ALLOWED_TYPES.contains(o.class))
             return o;
-        if (o instanceof Script)
+        if (o instanceof Script || o instanceof Closure)
             return o; // access to properties of compiled groovy script
         throw new SecurityException("Oops, unexpected type: "+o.class);
     }

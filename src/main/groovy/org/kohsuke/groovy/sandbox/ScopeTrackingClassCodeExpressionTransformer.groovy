@@ -48,7 +48,7 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
     /**
      * Evaluates the body in a new variable sccope.
      */
-    private void withVarScope(Closure body) {
+    protected void withVarScope(Closure body) {
         varScope = new StackVariableSet(varScope);
         try {
             body();
