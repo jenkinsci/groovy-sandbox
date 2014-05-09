@@ -460,4 +460,16 @@ Script1\$_run_closure1.message
             x instanceof String;
         """)
     }
+
+    void testRegexp() {
+        assertIntercept(
+        [
+            'ScriptBytecodeAdapter:findRegex(String,String)',
+            'ScriptBytecodeAdapter:matchRegex(String,String)'
+        ],false,"""
+            def x = 'foo';
+            x =~ /bla/
+            x ==~ /bla/
+        """)
+    }
 }

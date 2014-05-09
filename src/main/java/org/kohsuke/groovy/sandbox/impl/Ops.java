@@ -34,6 +34,10 @@ public class Ops {
         return Types.ofType(type,COMPARISON_OPERATOR);
     }
 
+    public static boolean isRegexpComparisonOperator(int type) {
+        return Types.ofType(type,REGEX_COMPARISON_OPERATOR);
+    }
+
     public static boolean isLogicalOperator(int type) {
         return Types.ofType(type,LOGICAL_OPERATOR);
     }
@@ -81,5 +85,7 @@ public class Ops {
         b.put(COMPARE_GREATER_THAN_EQUAL,"compareGreaterThanEqual");
         b.put(COMPARE_TO,"compareTo");
 
+        b.put(FIND_REGEX,"findRegex");
+        b.put(MATCH_REGEX,"matchRegex");
     }
 }

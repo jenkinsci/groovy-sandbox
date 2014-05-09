@@ -21,6 +21,7 @@ import org.codehaus.groovy.control.SourceUnit
 import org.codehaus.groovy.control.customizers.CompilationCustomizer
 import org.codehaus.groovy.ast.expr.ConstructorCallExpression
 import org.codehaus.groovy.ast.expr.BinaryExpression
+import org.codehaus.groovy.runtime.ScriptBytecodeAdapter
 import org.codehaus.groovy.syntax.Token
 import org.codehaus.groovy.syntax.Types
 import org.codehaus.groovy.ast.expr.FieldExpression
@@ -360,6 +361,15 @@ class SandboxTransformer extends CompilationCustomizer {
                 if (Ops.isLogicalOperator(exp.operation.type)) {
                     return super.transform(exp);
                 } else
+                if (Ops.isRegexpComparisonOperator(exp.operation.type)) {
+                    if (interceptMethodCall)
+                        return makeCheckedCall("checkedStaticCall", [
+                                classExp(ScriptBytecodeAdapterClass),
+                                stringExp(Ops.binaryOperatorMethods(exp.operation.type)),
+                                transform(exp.leftExpression),
+                                transform(exp.rightExpression)
+                        ])
+                } else
                 if (Ops.isComparisionOperator(exp.operation.type)) {
                     if (interceptMethodCall) {
                         return makeCheckedCall("checkedComparison", [
@@ -403,6 +413,13 @@ class SandboxTransformer extends CompilationCustomizer {
             return new ConstantExpression(v,true);
         }
 
+        ClassExpression classExp(ClassNode c) {
+            return new ClassExpression(c);
+        }
+
+        ConstantExpression stringExp(String v) {
+            return new ConstantExpression(v);
+        }
 
         @Override
         protected SourceUnit getSourceUnit() {
@@ -411,6 +428,7 @@ class SandboxTransformer extends CompilationCustomizer {
     }
 
     static final def checkerClass = new ClassNode(Checker.class)
+    static final def ScriptBytecodeAdapterClass = new ClassNode(ScriptBytecodeAdapter.class)
 
     /**
      * Expression that accesses the closure object itself from within the closure.
