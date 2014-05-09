@@ -101,10 +101,8 @@ class SandboxTransformer extends CompilationCustomizer {
 
     @Override
     void call(SourceUnit source, GeneratorContext context, ClassNode classNode) {
-        def ast = source.getAST();
         def visitor = new VisitorImpl(source);
 
-        ast.methods?.each { visitor.visitMethod(it) }
         classNode?.declaredConstructors?.each { visitor.visitMethod(it) }
         classNode?.methods?.each { visitor.visitMethod(it) }
         classNode?.objectInitializerStatements?.each { it.visit(visitor) }

@@ -437,4 +437,18 @@ Script1\$_run_closure1.message
 //new Foo().plusTwo(5)
 //""")
 //    }
+
+    // bug 14
+    void testUnclassifiedStaticMethod() {
+        assertIntercept(
+        [
+            'Script1.m()',
+            'System:getProperty(String)'
+        ],null,"""
+            m();
+            def m() {
+                System.getProperty("foo");
+            }
+        """)
+    }
 }
