@@ -2,6 +2,7 @@ package org.kohsuke.groovy.sandbox
 
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer
 import org.codehaus.groovy.ast.MethodNode
+import org.codehaus.groovy.ast.Parameter
 import org.codehaus.groovy.ast.Variable
 import org.codehaus.groovy.ast.expr.ClosureExpression
 import org.codehaus.groovy.ast.expr.DeclarationExpression
@@ -37,6 +38,9 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
     void visitMethod(MethodNode node) {
         varScope = null;
         withVarScope {
+            for (Parameter p : node.parameters) {
+                declareVariable(p)
+            }
             super.visitMethod(node)
         }
     }
@@ -119,10 +123,9 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
     /**
      * @see org.codehaus.groovy.classgen.asm.BinaryExpressionHelper#evaluateEqual(org.codehaus.groovy.ast.expr.BinaryExpression, boolean)
      */
-    @Override
-    void visitDeclarationExpression(DeclarationExpression exp) {
+    void handleDeclarations(DeclarationExpression exp) {
         if (exp.leftExpression instanceof VariableExpression) {
-            declareVariable((VariableExpression)exp);
+            declareVariable((VariableExpression)exp.leftExpression);
         }
         if (exp instanceof TupleExpression) {
             TupleExpression te = (TupleExpression) exp;
@@ -130,7 +133,6 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
                 declareVariable((VariableExpression)e);
             }
         }
-        super.visitDeclarationExpression(exp)
     }
 
     def declareVariable(Variable exp) {

@@ -6,6 +6,7 @@ import org.codehaus.groovy.ast.expr.AttributeExpression
 import org.codehaus.groovy.ast.expr.ClassExpression
 import org.codehaus.groovy.ast.expr.ClosureExpression
 import org.codehaus.groovy.ast.expr.ConstantExpression
+import org.codehaus.groovy.ast.expr.DeclarationExpression
 import org.codehaus.groovy.ast.expr.Expression
 import org.codehaus.groovy.ast.expr.ListExpression
 import org.codehaus.groovy.ast.expr.MethodCallExpression
@@ -271,6 +272,10 @@ class SandboxTransformer extends CompilationCustomizer {
                     pexp.implicitThis = true;
                     return transform(pexp);
                 }
+            }
+
+            if (exp instanceof DeclarationExpression) {
+                handleDeclarations(exp);
             }
 
             if (exp instanceof BinaryExpression) {
