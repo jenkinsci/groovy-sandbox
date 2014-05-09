@@ -97,7 +97,7 @@ class TheTest extends TestCase {
         
         // property set
         assertIntercept(
-                "Point.x=Integer",
+                ['Script7.point',"Point.x=Integer"],
                 3,
                 "point.x=3"
         )
@@ -105,7 +105,7 @@ class TheTest extends TestCase {
 
         // attribute set
         assertIntercept(
-                "Point.@x=Integer",
+                ['Script8.point',"Point.@x=Integer"],
                 4,
                 "point.@x=4"
         )
@@ -113,7 +113,7 @@ class TheTest extends TestCase {
 
         // property spread
         assertIntercept(
-                "Point.x=Integer/Point.x=Integer",
+                ['Script9.points',"Point.x=Integer/Point.x=Integer"],
                 3,
                 "points*.x=3"
         )
@@ -124,7 +124,7 @@ class TheTest extends TestCase {
         assertIntercept(
                 "int[][Integer]=Integer/int[][Integer]",
                 1,
-                "x=new int[3];x[0]=1;x[0]"
+                "def x=new int[3];x[0]=1;x[0]"
         )
     }
 
@@ -212,7 +212,7 @@ class TheTest extends TestCase {
 
     void testCompoundAssignment() {
         assertIntercept(
-                "Point.x/Double.plus(Integer)/Point.x=Double",
+                "Script1.point/Point.x/Double.plus(Integer)/Point.x=Double",
                 (double)4.0,
 """
 point.x += 3
@@ -222,7 +222,7 @@ point.x += 3
     void testCompoundAssignment2() {
         // "[I" is the type name of int[]
         assertIntercept(
-                "int[][Integer]/Integer.leftShift(Integer)/int[][Integer]=Integer",
+                "Script1.intArray/int[][Integer]/Integer.leftShift(Integer)/int[][Integer]=Integer",
                 1<<3,
 """
 intArray[1] <<= 3;
@@ -231,7 +231,7 @@ intArray[1] <<= 3;
 
     void testComparison() {
         assertIntercept(
-                "Point.equals(Point)/Integer.compareTo(Integer)",
+                "Script1.point/Script1.point/Point.equals(Point)/Integer.compareTo(Integer)",
                 true,
 """
 point==point
@@ -244,7 +244,7 @@ point==point
                 "new Script1\$1(Script1)/Script1\$1.plusOne(Integer)/Integer.plus(Integer)",
                 6,
 """
-x = new Object() {
+def x = new Object() {
    def plusOne(rhs) {
      return rhs+1;
    }
@@ -284,9 +284,9 @@ x.plusOne(5)
      * See issue #6. We are not intercepting calls to null.
      */
     void testNull() {
-        assertIntercept("", NullObject.class, "x=null; null.getClass()")
-        assertIntercept("", "null3", "x=null; x.plus('3')")
-        assertIntercept("", false, "x=null; x==3")
+        assertIntercept("", NullObject.class, "def x=null; null.getClass()")
+        assertIntercept("", "null3", "def x=null; x.plus('3')")
+        assertIntercept("", false, "def x=null; x==3")
     }
 
     /**
@@ -312,13 +312,12 @@ x.plusOne(5)
         // doing so requires a call site selection and deconstruction
         assertIntercept(
             [
-                    "Script1.c=Script1\$_run_closure1",
-                    "Script1.c()",
-                    "Script1\$_run_closure1.delegate=String",
-                    "Script1\$_run_closure1.length()"
+                    'Script1$_run_closure1.call()',
+                    'Script1$_run_closure1.delegate=String',
+                    'Script1$_run_closure1.length()'
             ], 3, """
             def x = 0;
-            c = { ->
+            def c = { ->
                 delegate = "foo";
                 x = length();
             }
@@ -331,9 +330,16 @@ x.plusOne(5)
     void testClosureDelegationOwner() {
         // TODO: ideally we should be seeing String.length()
         // doing so requires a call site selection and deconstruction
-        assertIntercept("Script1.c()/Script1\$_run_closure1_closure2.call()/Script1\$_run_closure1_closure2.length()", 3, """
+        assertIntercept(
+            [
+                "Script1\$_run_closure1.call()",
+                'Script1$_run_closure1.delegate=String',
+                'Script1$_run_closure1_closure2.call()',
+                'Script1$_run_closure1_closure2.length()'
+            ],
+            3, """
             def x = 0;
-            c = { ->
+            def c = { ->
                 delegate = "foo";
                 { -> x = length(); }();
             }
@@ -346,9 +352,18 @@ x.plusOne(5)
     void testClosureDelegationProperty() {
         // TODO: ideally we should be seeing String.length()
         // doing so requires a call site selection and deconstruction
-        assertIntercept("Script1.c()/new SomeBean(Integer,Integer)/Integer.plus(Integer)", 3, """
+        assertIntercept(
+            [
+                'Script1$_run_closure1.call()',
+                'new SomeBean(Integer,Integer)',
+                'Script1$_run_closure1.delegate=SomeBean',
+                'Script1$_run_closure1.x',
+                'Script1$_run_closure1.y',
+                'Integer.plus(Integer)'
+            ],
+            3, """
             def sum = 0;
-            c = { ->
+            def c = { ->
                 delegate = new SomeBean(1,2);
                 sum = x+y;
             }
@@ -361,9 +376,19 @@ x.plusOne(5)
     void testClosureDelegationPropertyOwner() {
         // TODO: ideally we should be seeing String.length()
         // doing so requires a call site selection and deconstruction
-        assertIntercept("Script1.c()/new SomeBean(Integer,Integer)/Script1\$_run_closure1_closure2.call()/Integer.plus(Integer)", 3, """
+        assertIntercept(
+            [
+                'Script1$_run_closure1.call()',
+                'new SomeBean(Integer,Integer)',
+                'Script1$_run_closure1.delegate=SomeBean',
+                'Script1$_run_closure1_closure2.call()',
+                'Script1$_run_closure1_closure2.x',
+                'Script1$_run_closure1_closure2.y',
+                'Integer.plus(Integer)'
+            ],
+            3, """
             def sum = 0;
-            c = { ->
+            def c = { ->
                 delegate = new SomeBean(1,2);
                 { -> sum = x+y; }();
             }
