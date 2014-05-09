@@ -10,7 +10,7 @@ Compile-time transformer to run Groovy code in a restrictive sandbox. Executes u
 <dependency>
     <groupId>org.kohsuke</groupId>
     <artifactId>groovy-sandbox</artifactId>
-    <version>1.5</version>
+    <version>1.6</version>
 </dependency>
 ```
 
