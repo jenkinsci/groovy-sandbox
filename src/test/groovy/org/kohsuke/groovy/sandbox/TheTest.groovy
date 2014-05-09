@@ -50,6 +50,11 @@ class TheTest extends TestCase {
         assertEquals(expectedCallSequence.replace('/','\n').trim(), cr.toString().trim())
     }
 
+    def assertIntercept(List<String> expectedCallSequence, Object expectedValue, String script) {
+        assertIntercept(expectedCallSequence.join("\n"), expectedValue, script);
+    }
+
+
     void testOK() {
         // instance call
         assertIntercept(
@@ -305,7 +310,13 @@ x.plusOne(5)
     void testClosureDelegation() {
         // TODO: ideally we should be seeing String.length()
         // doing so requires a call site selection and deconstruction
-        assertIntercept("Script1.c()/Script1\$_run_closure1.length()", 3, """
+        assertIntercept(
+            [
+                    "Script1.c=Script1\$_run_closure1",
+                    "Script1.c()",
+                    "Script1\$_run_closure1.delegate=String",
+                    "Script1\$_run_closure1.length()"
+            ], 3, """
             def x = 0;
             c = { ->
                 delegate = "foo";
