@@ -21,6 +21,7 @@ import org.codehaus.groovy.control.SourceUnit
 import org.codehaus.groovy.control.customizers.CompilationCustomizer
 import org.codehaus.groovy.ast.expr.ConstructorCallExpression
 import org.codehaus.groovy.ast.expr.BinaryExpression
+import org.codehaus.groovy.syntax.Token
 import org.codehaus.groovy.syntax.Types
 import org.codehaus.groovy.ast.expr.FieldExpression
 import org.codehaus.groovy.ast.expr.VariableExpression
@@ -352,6 +353,9 @@ class SandboxTransformer extends CompilationCustomizer {
                                 transform(exp.leftExpression),
                                 transform(exp.rightExpression)
                         ])
+                } else
+                if (exp.operation.type==Types.KEYWORD_INSTANCEOF) {// instanceof operator
+                    return super.transform(exp);
                 } else
                 if (Ops.isLogicalOperator(exp.operation.type)) {
                     return super.transform(exp);

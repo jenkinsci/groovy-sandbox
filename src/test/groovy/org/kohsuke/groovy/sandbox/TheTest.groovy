@@ -451,4 +451,13 @@ Script1\$_run_closure1.message
             }
         """)
     }
+
+    void testInstanceOf() {
+        assertIntercept(
+        [
+        ],true,"""
+            def x = 'foo';
+            x instanceof String;
+        """)
+    }
 }
