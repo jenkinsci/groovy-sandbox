@@ -1,6 +1,8 @@
 package org.kohsuke.groovy.sandbox
 
+import org.codehaus.groovy.ast.ClassCodeExpressionTransformer
 import org.codehaus.groovy.ast.ClassNode
+import org.codehaus.groovy.ast.GroovyClassVisitor
 import org.codehaus.groovy.ast.Parameter
 import org.codehaus.groovy.ast.expr.ArgumentListExpression
 import org.codehaus.groovy.ast.expr.AttributeExpression
@@ -103,12 +105,16 @@ class SandboxTransformer extends CompilationCustomizer {
 
     @Override
     void call(SourceUnit source, GeneratorContext context, ClassNode classNode) {
-        def visitor = new VisitorImpl(source);
+        def visitor = createVisitor(source);
 
         classNode?.declaredConstructors?.each { visitor.visitMethod(it) }
         classNode?.methods?.each { visitor.visitMethod(it) }
         classNode?.objectInitializerStatements?.each { it.visit(visitor) }
         classNode?.fields?.each { visitor.visitField(it) }
+    }
+
+    public ClassCodeExpressionTransformer createVisitor(SourceUnit source) {
+        return new VisitorImpl(source);
     }
 
     class VisitorImpl extends ScopeTrackingClassCodeExpressionTransformer {
