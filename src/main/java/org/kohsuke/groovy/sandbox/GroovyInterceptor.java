@@ -143,6 +143,7 @@ public abstract class GroovyInterceptor {
      *     <dd>
      *         The object whose method/property is accessed.
      *         For constructor invocations and static calls, this is {@link Class}.
+     *         If the receiver is null, all the interceptors will be skipped.
      *     </dd>
      *     <dt>method</dt>
      *     <dd>

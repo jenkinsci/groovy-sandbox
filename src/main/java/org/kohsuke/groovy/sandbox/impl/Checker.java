@@ -84,14 +84,6 @@ public class Checker {
                 }
             }
 
-            if (_receiver==null) {
-                // See issue #6. Technically speaking Groovy handles this
-                // as if NullObject.INSTANCE is invoked. OTOH, it's confusing
-                // to GroovyInterceptor that the receiver can be null, so I'm
-                // bypassing the checker in this case.
-                return fakeCallSite(_method).call(_receiver,_args);
-            }
-
             /*
                 The third try:
 
@@ -105,7 +97,7 @@ public class Checker {
 
                 So here we are faking it by creating a new CallSite object.
              */
-            return new VarArgInvokerChain() {
+            return new VarArgInvokerChain(_receiver) {
                 public Object call(Object receiver, String method, Object... args) throws Throwable {
                     if (chain.hasNext())
                         return chain.next().onMethodCall(this,receiver,method,args);
@@ -117,7 +109,7 @@ public class Checker {
     }
 
     public static Object checkedStaticCall(Class _receiver, String _method, Object[] _args) throws Throwable {
-        return new VarArgInvokerChain() {
+        return new VarArgInvokerChain(_receiver) {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
                 if (chain.hasNext())
                     return chain.next().onStaticCall(this,(Class)receiver,method,args);
@@ -128,7 +120,7 @@ public class Checker {
     }
 
     public static Object checkedConstructor(Class _type, Object[] _args) throws Throwable {
-        return new VarArgInvokerChain() {
+        return new VarArgInvokerChain(_type) {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
                 if (chain.hasNext())
                     return chain.next().onNewInstance(this,(Class)receiver,args);
@@ -139,16 +131,8 @@ public class Checker {
         }.call(_type,null,fixNull(_args));
     }
 
-    public static Object checkedGetProperty(Object _receiver, boolean safe, boolean spread, Object _property) throws Throwable {
+    public static Object checkedGetProperty(final Object _receiver, boolean safe, boolean spread, Object _property) throws Throwable {
         if (safe && _receiver==null)     return null;
-
-        if (_receiver==null) {
-            // See issue #6. Technically speaking Groovy handles this
-            // as if NullObject.INSTANCE is invoked. OTOH, it's confusing
-            // to GroovyInterceptor that the receiver can be null, so I'm
-            // bypassing the checker in this case.
-            return ScriptBytecodeAdapter.getProperty(null, _receiver, _property.toString());
-        }
 
         if (spread) {
             List<Object> r = new ArrayList<Object>();
@@ -163,7 +147,7 @@ public class Checker {
 // 1st try: do the same call site stuff
 //            return fakeCallSite(property.toString()).callGetProperty(receiver);
 
-            return new ZeroArgInvokerChain() {
+            return new ZeroArgInvokerChain(_receiver) {
                 public Object call(Object receiver, String property) throws Throwable {
                     if (chain.hasNext())
                         return chain.next().onGetProperty(this,receiver,property);
@@ -183,14 +167,6 @@ public class Checker {
                     checkedBinaryOp(v, Ops.compoundAssignmentToBinaryOperator(op), _value));
         }
         if (safe && _receiver==null)     return _value;
-        if (_receiver==null) {
-            // See issue #6. Technically speaking Groovy handles this
-            // as if NullObject.INSTANCE is invoked. OTOH, it's confusing
-            // to GroovyInterceptor that the receiver can be null, so I'm
-            // bypassing the checker in this case.
-            ScriptBytecodeAdapter.setProperty(_value,null,_receiver,_property.toString());
-            return _value;
-        }
         if (spread) {
             Iterator itr = InvokerHelper.asIterator(_receiver);
             while (itr.hasNext()) {
@@ -200,7 +176,7 @@ public class Checker {
             }
             return _value;
         } else {
-            return new SingleArgInvokerChain() {
+            return new SingleArgInvokerChain(_receiver) {
                 public Object call(Object receiver, String property, Object value) throws Throwable {
                     if (chain.hasNext())
                         return chain.next().onSetProperty(this,receiver,property,value);
@@ -226,7 +202,7 @@ public class Checker {
             }
             return r;
         } else {
-            return new ZeroArgInvokerChain() {
+            return new ZeroArgInvokerChain(_receiver) {
                 public Object call(Object receiver, String property) throws Throwable {
                     if (chain.hasNext())
                         return chain.next().onGetAttribute(this,receiver,property);
@@ -261,7 +237,7 @@ public class Checker {
                     checkedSetAttribute(it,_property,true,false,op,_value);
             }
         } else {
-            return new SingleArgInvokerChain() {
+            return new SingleArgInvokerChain(_receiver) {
                 public Object call(Object receiver, String property, Object value) throws Throwable {
                     if (chain.hasNext())
                         return chain.next().onSetAttribute(this,receiver,property,value);
@@ -276,7 +252,7 @@ public class Checker {
     }
 
     public static Object checkedGetArray(Object _receiver, Object _index) throws Throwable {
-        return new SingleArgInvokerChain() {
+        return new SingleArgInvokerChain(_receiver) {
             public Object call(Object receiver, String _, Object index) throws Throwable {
                 if (chain.hasNext())
                     return chain.next().onGetArray(this,receiver,index);
@@ -301,7 +277,7 @@ public class Checker {
             return checkedSetArray(_receiver, _index, Types.ASSIGN,
                     checkedBinaryOp(v, Ops.compoundAssignmentToBinaryOperator(op), _value));
         } else {
-            return new TwoArgInvokerChain() {
+            return new TwoArgInvokerChain(_receiver) {
                 public Object call(Object receiver, String _, Object index, Object value) throws Throwable {
                     if (chain.hasNext())
                         return chain.next().onSetArray(this,receiver,index,value);
@@ -380,7 +356,7 @@ public class Checker {
                     Ops.binaryOperatorMethods(op), new Object[]{lhs,rhs});
         }
 
-        return new SingleArgInvokerChain() {
+        return new SingleArgInvokerChain(lhs) {
             public Object call(Object lhs, String method, Object rhs) throws Throwable {
                 if (chain.hasNext()) {
                     // based on what ScriptBytecodeAdapter actually does

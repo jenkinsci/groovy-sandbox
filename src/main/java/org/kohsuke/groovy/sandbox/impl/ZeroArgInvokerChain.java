@@ -2,8 +2,6 @@ package org.kohsuke.groovy.sandbox.impl;
 
 import org.kohsuke.groovy.sandbox.GroovyInterceptor;
 
-import java.util.Iterator;
-
 /**
  * {@link GroovyInterceptor.Invoker} that chains multiple {@link GroovyInterceptor} instances.
  *
@@ -11,8 +9,10 @@ import java.util.Iterator;
  *
  * @author Kohsuke Kawaguchi
  */
-public abstract class ZeroArgInvokerChain implements GroovyInterceptor.Invoker {
-    protected final Iterator<GroovyInterceptor> chain = GroovyInterceptor.getApplicableInterceptors().iterator();
+abstract class ZeroArgInvokerChain extends InvokerChain {
+    protected ZeroArgInvokerChain(Object receiver) {
+        super(receiver);
+    }
 
     public final Object call(Object receiver, String method, Object arg1) throws Throwable {
         throw new UnsupportedOperationException();

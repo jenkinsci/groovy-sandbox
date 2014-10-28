@@ -11,8 +11,10 @@ import java.util.Iterator;
  *
  * @author Kohsuke Kawaguchi
  */
-public abstract class TwoArgInvokerChain implements GroovyInterceptor.Invoker {
-    protected final Iterator<GroovyInterceptor> chain = GroovyInterceptor.getApplicableInterceptors().iterator();
+abstract class TwoArgInvokerChain extends InvokerChain {
+    protected TwoArgInvokerChain(Object receiver) {
+        super(receiver);
+    }
 
     public final Object call(Object receiver, String method) throws Throwable {
         throw new UnsupportedOperationException();
