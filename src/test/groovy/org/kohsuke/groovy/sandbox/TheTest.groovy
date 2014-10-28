@@ -576,4 +576,28 @@ Script1\$_run_closure1.message
         """);
         assert e instanceof NullPointerException;
     }
+
+    /**
+     * Makes sure the line number in the source code is preserved after translation.
+     */
+    void testIssue21() {
+        Exception e = eval("""  // line 1
+            def x = null;
+            def cl = {
+                x.hello();  // line 4
+            }
+            try {
+              cl();     // line 7
+            } catch (Exception e) {
+              return e;
+            }
+        """);
+
+        def sw = new StringWriter()
+        e.printStackTrace(new PrintWriter(sw));
+
+        def s = sw.toString();
+        assert s.contains("Script1.groovy:4");
+        assert s.contains("Script1.groovy:7");
+    }
 }

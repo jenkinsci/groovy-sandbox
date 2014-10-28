@@ -175,7 +175,7 @@ class SandboxTransformer extends CompilationCustomizer {
                 l = [transform(e)];
 
             // checkdCall expects an array
-            return new MethodCallExpression(new ListExpression(l),"toArray",new ArgumentListExpression());
+            return withLoc(e,new MethodCallExpression(new ListExpression(l),"toArray",new ArgumentListExpression()));
         }
         
         Expression makeCheckedCall(String name, Collection<Expression> arguments) {
@@ -185,6 +185,14 @@ class SandboxTransformer extends CompilationCustomizer {
     
         @Override
         Expression transform(Expression exp) {
+            Expression o = innerTransform(exp);
+            if (o!=exp) {
+                o.sourcePosition = exp;
+            }
+            return o;
+        }
+
+        private Expression innerTransform(Expression exp) {
             if (exp instanceof ClosureExpression) {
                 // ClosureExpression.transformExpression doesn't visit the code inside
                 ClosureExpression ce = (ClosureExpression)exp;
@@ -285,6 +293,7 @@ class SandboxTransformer extends CompilationCustomizer {
                     // see AsmClassGenerator.visitVariableExpression and processClassVariable.
                     PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, vexp.name);
                     pexp.implicitThis = true;
+                    withLoc(exp,pexp);
                     return transform(pexp);
                 }
             }
@@ -314,6 +323,7 @@ class SandboxTransformer extends CompilationCustomizer {
                             // see AsmClassGenerator.visitVariableExpression and processClassVariable.
                             PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, vexp.name);
                             pexp.implicitThis = true;
+                            pexp.sourcePosition = vexp;
 
                             lhs = pexp;
                         }
@@ -427,26 +437,27 @@ class SandboxTransformer extends CompilationCustomizer {
                     if (mode=="Postfix") {
                         // a trick to rewrite a++ without introducing a new local variable
                         //     a++ -> [a,a=a.next()][0]
-                        return transform(new BinaryExpression(
+                        return transform(withLoc(whole,new BinaryExpression(
                                 new ListExpression([
                                     atom,
                                     new BinaryExpression(atom, ASSIGNMENT_OP,
-                                        new MethodCallExpression(atom,op,EMPTY_ARGUMENTS))
+                                        withLoc(atom,new MethodCallExpression(atom,op,EMPTY_ARGUMENTS)))
                                 ]),
                                 new Token(Types.LEFT_SQUARE_BRACKET, "[", -1,-1),
                                 new ConstantExpression(0)
-                        ));
+                        )));
                     } else {
                         // ++a -> a=a.next()
-                        return transform(new BinaryExpression(atom,ASSIGNMENT_OP,
-                                new MethodCallExpression(atom,op,EMPTY_ARGUMENTS))
-                        );
+                        return transform(withLoc(whole,new BinaryExpression(atom,ASSIGNMENT_OP,
+                                withLoc(atom,new MethodCallExpression(atom,op,EMPTY_ARGUMENTS)))
+                        ));
                     }
                 } else {
                     // if the variable is not in-scope local variable, it gets treated as a property access with implicit this.
                     // see AsmClassGenerator.visitVariableExpression and processClassVariable.
                     PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, atom.name);
                     pexp.implicitThis = true;
+                    pexp.sourcePosition = atom;
 
                     atom = pexp;
                     // fall through to the "a.b++" case below
@@ -465,6 +476,14 @@ class SandboxTransformer extends CompilationCustomizer {
             }
 
             return whole;
+        }
+
+        /**
+         * Decorates an {@link ASTNode} by copying source location from another node.
+         */
+        private <T extends ASTNode> T withLoc(ASTNode src, T t) {
+            t.sourcePosition = src;
+            return t;
         }
 
         /**
