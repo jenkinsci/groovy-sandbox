@@ -472,4 +472,13 @@ Script1\$_run_closure1.message
             x ==~ /bla/
         """)
     }
+
+    void testNumericComparison() {
+        assertIntercept(
+        [
+            'Integer.compareTo(Integer)'
+        ],true,"""
+            5 < 8;
+        """)
+    }
 }
