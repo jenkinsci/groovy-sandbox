@@ -299,6 +299,49 @@ public class Checker {
     }
 
     /**
+     * a[i]++ / a[i]--
+     *
+     * @param op
+     *      "next" for ++, "previous" for --. These names are defined by Groovy.
+     */
+    public static Object checkedPostfixArray(Object r, Object i, String op) throws Throwable {
+        Object o = checkedGetArray(r, i);
+        Object n = checkedCall(o, false, false, op, new Object[0]);
+        checkedSetArray(r,i,Types.ASSIGN,n);
+        return o;
+    }
+
+    /**
+     * ++a[i] / --a[i]
+     */
+    public static Object checkedPrefixArray(Object r, Object i, String op) throws Throwable {
+        Object o = checkedGetArray(r, i);
+        Object n = checkedCall(o, false, false, op, new Object[0]);
+        checkedSetArray(r,i,Types.ASSIGN,n);
+        return n;
+    }
+
+    /**
+     * a.x++ / a.x--
+     */
+    public static Object checkedPostfixProperty(Object receiver, Object property, boolean safe, boolean spread, String op) throws Throwable {
+        Object o = checkedGetProperty(receiver, safe, spread, property);
+        Object n = checkedCall(o, false, false, op, new Object[0]);
+        checkedSetProperty(receiver, property, safe, spread, Types.ASSIGN, n);
+        return o;
+    }
+
+    /**
+     * ++a.x / --a.x
+     */
+    public static Object checkedPrefixProperty(Object receiver, Object property, boolean safe, boolean spread, String op) throws Throwable {
+        Object o = checkedGetProperty(receiver, safe, spread, property);
+        Object n = checkedCall(o, false, false, op, new Object[0]);
+        checkedSetProperty(receiver, property, safe, spread, Types.ASSIGN, n);
+        return n;
+    }
+
+    /**
      * Intercepts the binary expression of the form "lhs op rhs" like "lhs+rhs", "lhs>>rhs", etc.
      *
      * In Groovy, binary operators are method calls.

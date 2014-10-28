@@ -1,5 +1,6 @@
 package org.kohsuke.groovy.sandbox
 
+import org.codehaus.groovy.ast.ASTNode
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer
 import org.codehaus.groovy.ast.ClassNode
 import org.codehaus.groovy.ast.GroovyClassVisitor
@@ -14,6 +15,8 @@ import org.codehaus.groovy.ast.expr.Expression
 import org.codehaus.groovy.ast.expr.ListExpression
 import org.codehaus.groovy.ast.expr.MethodCallExpression
 import org.codehaus.groovy.ast.expr.MethodPointerExpression
+import org.codehaus.groovy.ast.expr.PostfixExpression
+import org.codehaus.groovy.ast.expr.PrefixExpression
 import org.codehaus.groovy.ast.expr.PropertyExpression
 import org.codehaus.groovy.ast.expr.StaticMethodCallExpression
 import org.codehaus.groovy.ast.expr.TupleExpression
@@ -396,7 +399,72 @@ class SandboxTransformer extends CompilationCustomizer {
                 }
             }
 
+            if (exp instanceof PostfixExpression) {
+                return prefixPostfixExp(exp, exp.expression, exp.operation, "Postfix");
+            }
+            if (exp instanceof PrefixExpression) {
+                return prefixPostfixExp(exp, exp.expression, exp.operation, "Prefix");
+            }
+
             return super.transform(exp)
+        }
+
+        private Expression prefixPostfixExp(Expression whole, Expression atom, Token opToken, String mode) {
+            String op = opToken.text=="++" ? "next" : "previous";
+
+            // a[b]++
+            if (atom instanceof BinaryExpression && atom.operation.type==Types.LEFT_SQUARE_BRACKET && interceptArray) {
+                return makeCheckedCall("checked${mode}Array", [
+                        transform(atom.leftExpression),
+                        transform(atom.rightExpression),
+                        stringExp(op)
+                ])
+            }
+
+            // a++
+            if (atom instanceof VariableExpression) {
+                if (isLocalVariable(atom.name)) {
+                    if (mode=="Postfix") {
+                        // a trick to rewrite a++ without introducing a new local variable
+                        //     a++ -> [a,a=a.next()][0]
+                        return transform(new BinaryExpression(
+                                new ListExpression([
+                                    atom,
+                                    new BinaryExpression(atom, ASSIGNMENT_OP,
+                                        new MethodCallExpression(atom,op,EMPTY_ARGUMENTS))
+                                ]),
+                                new Token(Types.LEFT_SQUARE_BRACKET, "[", -1,-1),
+                                new ConstantExpression(0)
+                        ));
+                    } else {
+                        // ++a -> a=a.next()
+                        return transform(new BinaryExpression(atom,ASSIGNMENT_OP,
+                                new MethodCallExpression(atom,op,EMPTY_ARGUMENTS))
+                        );
+                    }
+                } else {
+                    // if the variable is not in-scope local variable, it gets treated as a property access with implicit this.
+                    // see AsmClassGenerator.visitVariableExpression and processClassVariable.
+                    PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, atom.name);
+                    pexp.implicitThis = true;
+
+                    atom = pexp;
+                    // fall through to the "a.b++" case below
+                }
+            }
+
+            // a.b++
+            if (atom instanceof PropertyExpression && interceptProperty) {
+                return makeCheckedCall("checked${mode}Property", [
+                        transformObjectExpression(atom),
+                        atom.property,
+                        boolExp(atom.safe),
+                        boolExp(atom.spreadSafe),
+                        stringExp(op)
+                ]);
+            }
+
+            return whole;
         }
 
         /**
@@ -432,6 +500,8 @@ class SandboxTransformer extends CompilationCustomizer {
             return sourceUnit;
         }
     }
+
+    static final Token ASSIGNMENT_OP = new Token(Types.ASSIGN, '=', -1, -1)
 
     static final def checkerClass = new ClassNode(Checker.class)
     static final def ScriptBytecodeAdapterClass = new ClassNode(ScriptBytecodeAdapter.class)

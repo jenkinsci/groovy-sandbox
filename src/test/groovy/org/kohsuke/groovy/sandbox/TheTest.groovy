@@ -493,4 +493,74 @@ Script1\$_run_closure1.message
             return x;
         """)
     }
+
+    // issue 16
+    void testPrePostfixLocalVariable() {
+        assertIntercept([
+            'Integer.next()',
+            'ArrayList[Integer]',
+        ],[1,0],"""
+            def x = 0;
+            def y=x++;
+            return [x,y];
+        """)
+
+        assertIntercept([
+            'Integer.previous()'
+        ],[2,2],"""
+            def x = 3;
+            def y=--x;
+            return [x,y];
+        """)
+    }
+
+    void testPrePostfixArray() {
+        assertIntercept([
+            'ArrayList[Integer]',           // for reading x[1] before increment
+            'Integer.next()',
+            'ArrayList[Integer]=Integer',   // for writing x[1] after increment
+            'ArrayList[Integer]',           // for reading x[1] in the return statement
+        ],[3,2],"""
+            def x = [1,2,3];
+            def y=x[1]++;
+            return [x[1],y];
+        """)
+
+        assertIntercept([
+            'ArrayList[Integer]',           // for reading x[1] before increment
+            'Integer.previous()',
+            'ArrayList[Integer]=Integer',   // for writing x[1] after increment
+            'ArrayList[Integer]',           // for reading x[1] in the return statement
+        ],[1,1],"""
+            def x = [1,2,3];
+            def y=--x[1];
+            return [x[1],y];
+        """)
+    }
+
+    void testPrePostfixProperty() {
+        assertIntercept([
+            'Script1.x=Integer',    // x=3
+            'Script1.x',
+            'Integer.next()',
+            'Script1.x=Integer',    // read, plus, then write back
+            'Script1.x'             // final read for the return statement
+        ],[4,3],"""
+            x = 3;
+            def y=x++;
+            return [x,y];
+        """)
+
+        assertIntercept([
+                'Script2.x=Integer',    // x=3
+                'Script2.x',
+                'Integer.previous()',
+                'Script2.x=Integer',    // read, plus, then write back
+                'Script2.x'             // final read for the return statement
+        ],[2,2],"""
+            x = 3;
+            def y=--x;
+            return [x,y];
+        """)
+    }
 }
