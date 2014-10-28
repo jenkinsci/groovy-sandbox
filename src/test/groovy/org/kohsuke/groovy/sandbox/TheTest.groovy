@@ -481,4 +481,16 @@ Script1\$_run_closure1.message
             5 < 8;
         """)
     }
+
+    void testIssue17() {
+        assertIntercept(
+        [
+        ],45,"""
+            def x = 0;
+            for ( i in 0..9 ) {
+                x+= i;
+            }
+            return x;
+        """)
+    }
 }

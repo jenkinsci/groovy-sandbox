@@ -74,6 +74,29 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
     @Override
     void visitForLoop(ForStatement forLoop) {
         withVarScope {
+            /*
+                Groovy appears to always treat the left-hand side of forLoop as a declaration.
+                i.e., the following code is error
+
+                def h() {
+                    def x =0;
+                    def i = 0;
+                    for (i in 0..9 ) {
+                        x+= i;
+                    }
+                    println x;
+                }
+
+                script1414457812466.groovy: 18: The current scope already contains a variable of the name i
+                 @ line 18, column 5.
+                       for (i in 0..9 ) {
+                       ^
+
+                1 error
+
+                Also see issue 17.
+             */
+            declareVariable(forLoop.variable);
             super.visitForLoop(forLoop)
         }
     }
