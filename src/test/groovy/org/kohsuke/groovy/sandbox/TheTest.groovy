@@ -600,4 +600,30 @@ Script1\$_run_closure1.message
         assert s.contains("Script1.groovy:4");
         assert s.contains("Script1.groovy:7");
     }
+
+    void testIssue15() {
+        def e = eval("""
+            try {
+              def x = null;
+              return x.nullProp;
+            } catch (Exception e) {
+              return e;
+            }
+        """);
+        assert e instanceof NullPointerException;
+        // x.nullProp shouldn't be intercepted, so the record should be empty
+        assert cr.toString().trim()=="";
+
+        e = eval("""
+            try {
+              def x = null;
+              x.nullProp = 1;
+            } catch (Exception e) {
+              return e;
+            }
+        """);
+        assert e instanceof NullPointerException;
+        // x.nullProp shouldn't be intercepted, so the record should be empty
+        assert cr.toString().trim()=="";
+    }
 }

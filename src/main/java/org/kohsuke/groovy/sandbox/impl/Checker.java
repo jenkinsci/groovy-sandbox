@@ -141,6 +141,15 @@ public class Checker {
 
     public static Object checkedGetProperty(Object _receiver, boolean safe, boolean spread, Object _property) throws Throwable {
         if (safe && _receiver==null)     return null;
+
+        if (_receiver==null) {
+            // See issue #6. Technically speaking Groovy handles this
+            // as if NullObject.INSTANCE is invoked. OTOH, it's confusing
+            // to GroovyInterceptor that the receiver can be null, so I'm
+            // bypassing the checker in this case.
+            return ScriptBytecodeAdapter.getProperty(null, _receiver, _property.toString());
+        }
+
         if (spread) {
             List<Object> r = new ArrayList<Object>();
             Iterator itr = InvokerHelper.asIterator(_receiver);
@@ -174,6 +183,14 @@ public class Checker {
                     checkedBinaryOp(v, Ops.compoundAssignmentToBinaryOperator(op), _value));
         }
         if (safe && _receiver==null)     return _value;
+        if (_receiver==null) {
+            // See issue #6. Technically speaking Groovy handles this
+            // as if NullObject.INSTANCE is invoked. OTOH, it's confusing
+            // to GroovyInterceptor that the receiver can be null, so I'm
+            // bypassing the checker in this case.
+            ScriptBytecodeAdapter.setProperty(_value,null,_receiver,_property.toString());
+            return _value;
+        }
         if (spread) {
             Iterator itr = InvokerHelper.asIterator(_receiver);
             while (itr.hasNext()) {
