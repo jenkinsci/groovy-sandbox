@@ -563,4 +563,17 @@ Script1\$_run_closure1.message
             return [x,y];
         """)
     }
+
+    void testCatchStatement() {
+        Exception e = eval("""
+            def o = null;
+            try {
+                o.hello();
+                return null;
+            } catch (Exception e) {
+                return e;
+            }
+        """);
+        assert e instanceof NullPointerException;
+    }
 }

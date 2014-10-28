@@ -10,6 +10,7 @@ import org.codehaus.groovy.ast.expr.Expression
 import org.codehaus.groovy.ast.expr.TupleExpression
 import org.codehaus.groovy.ast.expr.VariableExpression
 import org.codehaus.groovy.ast.stmt.BlockStatement
+import org.codehaus.groovy.ast.stmt.CatchStatement
 import org.codehaus.groovy.ast.stmt.DoWhileStatement
 import org.codehaus.groovy.ast.stmt.ForStatement
 import org.codehaus.groovy.ast.stmt.IfStatement
@@ -126,6 +127,14 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
     void visitTryCatchFinally(TryCatchStatement statement) {
         withVarScope {
             super.visitTryCatchFinally(statement)
+        }
+    }
+
+    @Override
+    void visitCatchStatement(CatchStatement statement) {
+        withVarScope {
+            declareVariable(statement.variable);
+            super.visitCatchStatement(statement)
         }
     }
 
