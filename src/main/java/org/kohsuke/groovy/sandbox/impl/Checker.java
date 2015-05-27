@@ -1,10 +1,15 @@
 package org.kohsuke.groovy.sandbox.impl;
 
+import groovy.lang.Closure;
+import groovy.lang.GroovyRuntimeException;
 import groovy.lang.MetaClass;
 import groovy.lang.MetaClassImpl;
 import groovy.lang.MetaMethod;
+import groovy.lang.MissingMethodException;
+import groovy.lang.MissingPropertyException;
 import org.codehaus.groovy.classgen.asm.BinaryExpressionHelper;
 import org.codehaus.groovy.runtime.InvokerHelper;
+import org.codehaus.groovy.runtime.MetaClassHelper;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
 import org.codehaus.groovy.runtime.callsite.CallSite;
 import org.codehaus.groovy.runtime.callsite.CallSiteArray;
@@ -13,6 +18,10 @@ import org.codehaus.groovy.syntax.Types;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+
+import static org.codehaus.groovy.runtime.InvokerHelper.getMetaClass;
+import static org.codehaus.groovy.runtime.MetaClassHelper.convertToTypeArray;
+import static org.kohsuke.groovy.sandbox.impl.ClosureSupport.BUILTIN_PROPERTIES;
 
 /**
  * Intercepted Groovy script calls into this class.
@@ -68,7 +77,7 @@ public class Checker {
              */
 
             if (_receiver instanceof Class) {
-                MetaClass mc = InvokerHelper.getMetaClass((Class)_receiver);
+                MetaClass mc = getMetaClass((Class) _receiver);
                 if (mc instanceof MetaClassImpl) {
                     MetaClassImpl mci = (MetaClassImpl) mc;
                     MetaMethod m = mci.retrieveStaticMethod(_method,_args);
@@ -81,6 +90,42 @@ public class Checker {
                                 return checkedStaticCall((Class)_receiver,_method,_args);
                         }
                     }
+                }
+            }
+
+            if (_receiver instanceof Closure) {
+                if (_method.equals("invokeMethod") && isInvokingMethodOnClosure(_receiver,_method,_args)) {
+                    // if someone is calling closure.invokeMethod("foo",args), map that back to closure.foo("args")
+                    _method = _args[0].toString();
+                    _args = (Object[])_args[1];
+                }
+
+                MetaMethod m = getMetaClass(_receiver).pickMethod(_method, convertToTypeArray(_args));
+                if (m==null) {
+                    // if we are trying to call a method that's actually defined in Closure, then we'll get non-null 'm'
+                    // in that case, treat it like normal method call
+
+                    // if we are here, that means we are trying to delegate the call to 'owner', 'delegate', etc.
+                    // is going to, and check access accordingly. Groovy's corresponding code is in MetaClassImpl.invokeMethod(...)
+                    List<Object> targets = ClosureSupport.targetsOf((Closure) _receiver);
+
+                    Class[] argTypes = convertToTypeArray(_args);
+
+                    // in the first phase, we look for exact method match
+                    for (Object candidate : targets) {
+                        if (InvokerHelper.getMetaClass(candidate).pickMethod(_method,argTypes)!=null)
+                            return checkedCall(candidate,false,false, _method, _args);
+                    }
+                    // in the second phase, we try to call invokeMethod on them
+                    for (Object candidate : targets) {
+                        try {
+                            return checkedCall(candidate,false,false,"invokeMethod",new Object[]{_method,_args});
+                        } catch (MissingMethodException e) {
+                            // try the next one
+                        }
+                    }
+                    // we tried to be smart about Closure.invokeMethod, but we are just not finding any.
+                    // so we'll have to treat this like any other method.
                 }
             }
 
@@ -106,6 +151,25 @@ public class Checker {
                 }
             }.call(_receiver,_method,_args);
         }
+    }
+
+    /**
+     * Are we trying to invoke a method defined on Closure or its super type?
+     * (If so, we'll need to chase down which method we are actually invoking.)
+     *
+     * <p>
+     * Used for invokeMethod/getProperty/setProperty.
+     *
+     * <p>
+     * If the receiver overrides this method, return false since we don't know how such methods behave.
+     */
+    private static boolean isInvokingMethodOnClosure(Object receiver, String method, Object... args) {
+        if (receiver instanceof Closure) {
+            MetaMethod m = getMetaClass(receiver).pickMethod(method, convertToTypeArray(args));
+            if (m!=null && m.getDeclaringClass().isAssignableFrom(Closure.class))
+                return true;
+        }
+        return false;
     }
 
     public static Object checkedStaticCall(Class _receiver, String _method, Object[] _args) throws Throwable {
@@ -143,19 +207,34 @@ public class Checker {
                     r.add(checkedGetProperty(it,true,false,_property));
             }
             return r;
-        } else {
+        }
 // 1st try: do the same call site stuff
 //            return fakeCallSite(property.toString()).callGetProperty(receiver);
 
-            return new ZeroArgInvokerChain(_receiver) {
-                public Object call(Object receiver, String property) throws Throwable {
-                    if (chain.hasNext())
-                        return chain.next().onGetProperty(this,receiver,property);
-                    else
-                        return ScriptBytecodeAdapter.getProperty(null, receiver, property);
+        if (isInvokingMethodOnClosure(_receiver, "getProperty", _property) && !BUILTIN_PROPERTIES.contains(_property)) {
+            // if we are trying to invoke Closure.getProperty(),
+            // we want to find out where the call is going to, and check that target
+            MissingPropertyException x=null;
+            for (Object candidate : ClosureSupport.targetsOf((Closure) _receiver)) {
+                try {
+                    return checkedGetProperty(candidate, false, false, _property);
+                } catch (MissingPropertyException e) {
+                    x = e;
+                    // try the next one
                 }
-            }.call(_receiver,_property.toString());
+            }
+            if (x!=null)    throw x;
+            throw new MissingPropertyException(_property.toString(), _receiver.getClass());
         }
+
+        return new ZeroArgInvokerChain(_receiver) {
+            public Object call(Object receiver, String property) throws Throwable {
+                if (chain.hasNext())
+                    return chain.next().onGetProperty(this,receiver,property);
+                else
+                    return ScriptBytecodeAdapter.getProperty(null, receiver, property);
+            }
+        }.call(_receiver,_property.toString());
     }
 
     public static Object checkedSetProperty(Object _receiver, Object _property, boolean safe, boolean spread, int op, Object _value) throws Throwable {
@@ -175,19 +254,38 @@ public class Checker {
                     checkedSetProperty(it, _property, true, false, op, _value);
             }
             return _value;
-        } else {
-            return new SingleArgInvokerChain(_receiver) {
-                public Object call(Object receiver, String property, Object value) throws Throwable {
-                    if (chain.hasNext())
-                        return chain.next().onSetProperty(this,receiver,property,value);
-                    else {
-                        // according to AsmClassGenerator this is how the compiler maps it to
-                        ScriptBytecodeAdapter.setProperty(value,null,receiver,property);
-                        return value;
-                    }
-                }
-            }.call(_receiver,_property.toString(),_value);
         }
+
+        if (isInvokingMethodOnClosure(_receiver, "setProperty", _property) && !BUILTIN_PROPERTIES.contains(_property)) {
+            // if we are trying to invoke Closure.setProperty(),
+            // we want to find out where the call is going to, and check that target
+            GroovyRuntimeException x=null;
+            for (Object candidate : ClosureSupport.targetsOf((Closure) _receiver)) {
+                try {
+                    return checkedSetProperty(candidate, _property, false, false, op, _value);
+                } catch (GroovyRuntimeException e) {
+                    // Cathing GroovyRuntimeException feels questionable, but this is how Groovy does it in
+                    // Closure.setPropertyTryThese().
+                    x = e;
+                    // try the next one
+                }
+            }
+            if (x!=null)
+                throw x;
+            throw new MissingPropertyException(_property.toString(), _receiver.getClass());
+        }
+
+        return new SingleArgInvokerChain(_receiver) {
+            public Object call(Object receiver, String property, Object value) throws Throwable {
+                if (chain.hasNext())
+                    return chain.next().onSetProperty(this,receiver,property,value);
+                else {
+                    // according to AsmClassGenerator this is how the compiler maps it to
+                    ScriptBytecodeAdapter.setProperty(value,null,receiver,property);
+                    return value;
+                }
+            }
+        }.call(_receiver,_property.toString(),_value);
     }
 
     public static Object checkedGetAttribute(Object _receiver, boolean safe, boolean spread, Object _property) throws Throwable {

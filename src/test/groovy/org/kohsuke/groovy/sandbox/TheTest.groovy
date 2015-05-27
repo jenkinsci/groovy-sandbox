@@ -13,35 +13,57 @@ import org.codehaus.groovy.control.CompilerConfiguration
  * @author Kohsuke Kawaguchi
  */
 class TheTest extends TestCase {
-    def sh;
+    def sh,plain;
     def binding = new Binding()
     def ClassRecorder cr = new ClassRecorder()
 
     void setUp() {
-        binding.foo = "FOO"
-        binding.bar = "BAR"
-        binding.zot = 5
-        binding.point = new Point(1,2)
-        binding.points = [new Point(1,2),new Point(3,4)]
-        binding.intArray = [0,1,2,3,4] as int[]
-
         def cc = new CompilerConfiguration()
         cc.addCompilationCustomizers(new ImportCustomizer().addImports(TheTest.class.name).addStarImports("org.kohsuke.groovy.sandbox"))
         cc.addCompilationCustomizers(new SandboxTransformer())
         sh = new GroovyShell(binding,cc)
 
+        cc = new CompilerConfiguration()
+        cc.addCompilationCustomizers(new ImportCustomizer().addImports(TheTest.class.name).addStarImports("org.kohsuke.groovy.sandbox"))
+        plain = new GroovyShell(binding,cc)
+
     }
 
-    def eval(String expression) {
+    private void initVars() {
+        binding.foo = "FOO"
+        binding.bar = "BAR"
+        binding.zot = 5
+        binding.point = new Point(1, 2)
+        binding.points = [new Point(1, 2), new Point(3, 4)]
+        binding.intArray = [0, 1, 2, 3, 4] as int[]
+    }
+
+    /**
+     * Evaluates the expression while intercepting calls.
+     */
+    def interceptedEval(String expression) {
         cr.reset()
         cr.register();
         try {
-            return sh.evaluate(expression)
+            initVars()
+            return sh.evaluate(expression);
         } catch (Exception e) {
             throw new Exception("Failed to evaluate "+expression,e)
         } finally {
             cr.unregister();
         }
+    }
+
+    /**
+     * In addition to {@link #interceptedEval(String)}, verify that the result is the same as regular non-intercepted Groovy call.
+     */
+    def eval(String expression) {
+        initVars()
+        def expected = plain.evaluate(expression);
+
+        def actual = interceptedEval(expression);
+        assert expected==actual;
+        return actual;
     }
     
     def assertIntercept(String expectedCallSequence, Object expectedValue, String script) {
@@ -308,13 +330,11 @@ x.plusOne(5)
 
     // see issue 8
     void testClosureDelegation() {
-        // TODO: ideally we should be seeing String.length()
-        // doing so requires a call site selection and deconstruction
         assertIntercept(
             [
                     'Script1$_run_closure1.call()',
                     'Script1$_run_closure1.delegate=String',
-                    'Script1$_run_closure1.length()'
+                    'String.length()'
             ], 3, """
             def x = 0;
             def c = { ->
@@ -328,14 +348,12 @@ x.plusOne(5)
     }
 
     void testClosureDelegationOwner() {
-        // TODO: ideally we should be seeing String.length()
-        // doing so requires a call site selection and deconstruction
         assertIntercept(
             [
                 "Script1\$_run_closure1.call()",
                 'Script1$_run_closure1.delegate=String',
                 'Script1$_run_closure1_closure2.call()',
-                'Script1$_run_closure1_closure2.length()'
+                'String.length()'
             ],
             3, """
             def x = 0;
@@ -357,8 +375,12 @@ x.plusOne(5)
                 'Script1$_run_closure1.call()',
                 'new SomeBean(Integer,Integer)',
                 'Script1$_run_closure1.delegate=SomeBean',
-                'Script1$_run_closure1.x',
-                'Script1$_run_closure1.y',
+                // by the default delegation rule of Closure, it first attempts to get Script1.x,
+                // and only after we find out that there's no such property, we fall back to SomeBean.x
+                'Script1.x',
+                'SomeBean.x',
+                'Script1.y',
+                'SomeBean.y',
                 'Integer.plus(Integer)'
             ],
             3, """
@@ -373,17 +395,49 @@ x.plusOne(5)
         """)
     }
 
+    void testClosureDelegationPropertyDelegateOnly() {
+        assertIntercept(
+            [
+                'Script1$_run_closure1.call()',
+                'new SomeBean(Integer,Integer)',
+                'Script1$_run_closure1.delegate=SomeBean',
+                'Script1$_run_closure1.resolveStrategy=Integer',
+                // with DELEGATE_FIRST rule, unlike testClosureDelegationProperty() it shall not touch Script1.*
+                'SomeBean.x',
+                'SomeBean.y',
+                'Integer.plus(Integer)'
+            ],
+            3, """
+            def sum = 0;
+            def c = { ->
+                delegate = new SomeBean(1,2);
+                resolveStrategy = 1; // Closure.DELEGATE_FIRST
+                sum = x+y;
+            }
+            c();
+
+            sum;
+        """)
+    }
+
     void testClosureDelegationPropertyOwner() {
-        // TODO: ideally we should be seeing String.length()
-        // doing so requires a call site selection and deconstruction
+        /*
+            The way property access of 'x' gets dispatched to is:
+
+            innerClosure.getProperty("x"), which delegates to its owner, which is
+            outerClosure.getProperty("x"), which delegates to its delegate, which is
+            SomeBean.x
+         */
         assertIntercept(
             [
                 'Script1$_run_closure1.call()',
                 'new SomeBean(Integer,Integer)',
                 'Script1$_run_closure1.delegate=SomeBean',
                 'Script1$_run_closure1_closure2.call()',
-                'Script1$_run_closure1_closure2.x',
-                'Script1$_run_closure1_closure2.y',
+                'Script1.x',
+                'SomeBean.x',
+                'Script1.y',
+                'SomeBean.y',
                 'Integer.plus(Integer)'
             ],
             3, """
@@ -406,20 +460,45 @@ x.plusOne(5)
     }
 
     void testClosurePropertyAccess() {
-        // ideally we'd like the interceptor to know that Closure.getProperty() is delegating to the owner
-        // and the message is routed to Exception.message, but that logic is dependent on Closure.getProperty()
-        // implementation that can be overridden.
         assertIntercept("""
 Script1\$_run_closure1.call()
 new Exception(String)
 Script1\$_run_closure1.delegate=Exception
-Script1\$_run_closure1.message
+Script1.message
+Exception.message
 ""","foo","""
         { ->
             delegate = new Exception("foo");
             return message;
         }();
 """)
+    }
+
+    /**
+     * Calling method on Closure that's not delegated to somebody else.
+     */
+    void testNonDelegatingClosure() {
+        assertIntercept([
+            'Script1$_run_closure1.hashCode()',
+            'Script1$_run_closure1.equals(Script1$_run_closure1)'
+        ], true, """
+            def c = { -> }
+            c.hashCode()
+            c.equals(c);
+        """)
+
+        // but these guys are not on closure
+        assertIntercept([
+            'Script2$_run_closure1.call()',
+            'Script2$_run_closure1.hashCode()',
+            'Script2$_run_closure1.hashCode()',
+            'Integer.compareTo(Integer)'
+        ], true, """
+            def c = { ->
+                hashCode()
+            }
+            return c()==c.hashCode();
+        """)
     }
 
     // Groovy doesn't allow this?
@@ -565,7 +644,7 @@ Script1\$_run_closure1.message
     }
 
     void testCatchStatement() {
-        Exception e = eval("""
+        Exception e = interceptedEval("""
             def o = null;
             try {
                 o.hello();
@@ -581,7 +660,7 @@ Script1\$_run_closure1.message
      * Makes sure the line number in the source code is preserved after translation.
      */
     void testIssue21() {
-        Exception e = eval("""  // line 1
+        Exception e = interceptedEval("""  // line 1
             def x = null;
             def cl = {
                 x.hello();  // line 4
@@ -602,7 +681,7 @@ Script1\$_run_closure1.message
     }
 
     void testIssue15() {
-        def e = eval("""
+        def e = interceptedEval("""
             try {
               def x = null;
               return x.nullProp;
@@ -614,7 +693,7 @@ Script1\$_run_closure1.message
         // x.nullProp shouldn't be intercepted, so the record should be empty
         assert cr.toString().trim()=="";
 
-        e = eval("""
+        e = interceptedEval("""
             try {
               def x = null;
               x.nullProp = 1;
