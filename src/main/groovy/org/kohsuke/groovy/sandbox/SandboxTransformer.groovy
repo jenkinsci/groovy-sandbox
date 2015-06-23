@@ -380,6 +380,19 @@ class SandboxTransformer extends CompilationCustomizer {
                 if (Ops.isLogicalOperator(exp.operation.type)) {
                     return super.transform(exp);
                 } else
+                if (exp.operation.type==Types.KEYWORD_IN) {// membership operator: JENKINS-28154
+                    // This requires inverted operand order:
+                    // "a in [...]" -> "[...].isCase(a)"
+                    if (interceptMethodCall)
+                        return makeCheckedCall("checkedCall", [
+                                transform(exp.rightExpression),
+                                boolExp(false),
+                                boolExp(false),
+                                stringExp("isCase"),
+                                transform(exp.leftExpression),
+
+                        ])
+                } else
                 if (Ops.isRegexpComparisonOperator(exp.operation.type)) {
                     if (interceptMethodCall)
                         return makeCheckedCall("checkedStaticCall", [
