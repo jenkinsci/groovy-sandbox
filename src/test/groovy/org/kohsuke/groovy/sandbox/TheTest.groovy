@@ -222,14 +222,19 @@ class TheTest extends TestCase {
     }
 
     void testStaticFieldInitialization() {
-        assertIntercept(
-                "Integer.class/Class:forName(String)/new foo()",
-                null,
-                "class foo {\n" +
-                        "static obj = 5.class.forName('java.lang.String')\n" +
-                        "}\n" +
-                        "new foo()\n" +
-                        "return null")
+        def actual = eval("class foo {\n" +
+                "static obj = 5.class.forName('java.lang.String')\n" +
+                "}\n" +
+                "new foo()\n" +
+                "return null")
+        assertEquals(null, actual)
+
+        def seq = cr.toString().trim()
+
+        assertTrue(
+                "Integer.class/Class:forName(String)/new foo()".replace('/','\n')==seq
+            ||  "new foo()/Integer.class/Class:forName(String)".replace('/','\n')==seq
+        )
     }
 
     void testCompoundAssignment() {
