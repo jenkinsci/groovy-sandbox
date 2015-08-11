@@ -256,7 +256,7 @@ public class Checker {
             return _value;
         }
 
-        if (isInvokingMethodOnClosure(_receiver, "setProperty", _property) && !BUILTIN_PROPERTIES.contains(_property)) {
+        if (isInvokingMethodOnClosure(_receiver, "setProperty", _property, _value) && !BUILTIN_PROPERTIES.contains(_property)) {
             // if we are trying to invoke Closure.setProperty(),
             // we want to find out where the call is going to, and check that target
             GroovyRuntimeException x=null;
