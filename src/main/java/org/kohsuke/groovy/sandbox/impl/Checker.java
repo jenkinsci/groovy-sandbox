@@ -18,6 +18,7 @@ import org.codehaus.groovy.syntax.Types;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 import static org.codehaus.groovy.runtime.InvokerHelper.getMetaClass;
 import static org.codehaus.groovy.runtime.MetaClassHelper.convertToTypeArray;
@@ -226,6 +227,13 @@ public class Checker {
             if (x!=null)    throw x;
             throw new MissingPropertyException(_property.toString(), _receiver.getClass());
         }
+        if (_receiver instanceof Map) {
+            /*
+                MetaClassImpl.getProperty looks for Map subtype and handles it as Map.get call,
+                so dispatch that call accordingly.
+             */
+            return checkedCall(_receiver,false,false,"get",new Object[]{_property});
+        }
 
         return new ZeroArgInvokerChain(_receiver) {
             public Object call(Object receiver, String property) throws Throwable {
@@ -273,6 +281,14 @@ public class Checker {
             if (x!=null)
                 throw x;
             throw new MissingPropertyException(_property.toString(), _receiver.getClass());
+        }
+        if (_receiver instanceof Map) {
+            /*
+                MetaClassImpl.setProperty looks for Map subtype and handles it as Map.put call,
+                so dispatch that call accordingly.
+             */
+            checkedCall(_receiver,false,false,"put",new Object[]{_property,_value});
+            return _value;
         }
 
         return new SingleArgInvokerChain(_receiver) {

@@ -276,7 +276,7 @@ x.plusOne(5)
     }
 
     void testIssue2() {
-        assertIntercept("new HashMap()/HashMap.dummy/Script1.println(null)",null,"println(new HashMap().dummy);")
+        assertIntercept("new HashMap()/HashMap.get(String)/Script1.println(null)",null,"println(new HashMap().dummy);")
         assertIntercept("Script2.println()",null,"println();")
         assertIntercept("Script3.println(null)",null,"println(null);")
     }
@@ -722,5 +722,14 @@ Exception.message
         assertIntercept(
             "ArrayList.isCase(Integer)", false, "1 in [2]"
         );
+    }
+
+    /**
+     * Property access to Map is handled specially by MetaClassImpl, so our interceptor needs to treat that
+     * accordingly.
+     */
+    void testMapPropertyAccess() {
+        assertIntercept("new HashMap()/HashMap.get(String)/Script1.println(null)",null,"println(new HashMap().dummy);")
+        assertIntercept("new HashMap()/HashMap.put(String,Integer)",5,"new HashMap().dummy=5")
     }
 }
