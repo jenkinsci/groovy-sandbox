@@ -705,4 +705,22 @@ Exception.message
         // x.nullProp shouldn't be intercepted, so the record should be empty
         assert cr.toString().trim()=="";
     }
+
+    void testInOperator() {
+        assertIntercept(
+            "Integer.isCase(Integer)", true, "1 in 1"
+        );
+
+        assertIntercept(
+            "Integer.isCase(Integer)", false, "1 in 2"
+        );
+
+        assertIntercept(
+            "ArrayList.isCase(Integer)", true, "1 in [1]"
+        );
+
+        assertIntercept(
+            "ArrayList.isCase(Integer)", false, "1 in [2]"
+        );
+    }
 }
