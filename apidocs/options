@@ -1,0 +1,24 @@
+-classpath
+'/home/kohsuke/ws/groovy-sandbox/target/checkout/target/classes:/home/kohsuke/.m2/repository/asm/asm-commons/3.2/asm-commons-3.2.jar:/home/kohsuke/.m2/repository/antlr/antlr/2.7.7/antlr-2.7.7.jar:/home/kohsuke/.m2/repository/asm/asm-analysis/3.2/asm-analysis-3.2.jar:/home/kohsuke/.m2/repository/asm/asm/3.2/asm-3.2.jar:/home/kohsuke/.m2/repository/asm/asm-tree/3.2/asm-tree-3.2.jar:/home/kohsuke/.m2/repository/asm/asm-util/3.2/asm-util-3.2.jar:/home/kohsuke/.m2/repository/org/codehaus/groovy/groovy/1.8.5/groovy-1.8.5.jar'
+-encoding
+'UTF-8'
+-protected
+-sourcepath
+'/home/kohsuke/ws/groovy-sandbox/target/checkout/src/main/java:/home/kohsuke/ws/groovy-sandbox/target/checkout/target/generated-sources/groovy-stubs/main:/home/kohsuke/ws/groovy-sandbox/target/checkout/src/main/groovy'
+-author
+-bottom
+'Copyright &#169; 2015. All Rights Reserved.'
+-charset
+'UTF-8'
+-d
+'/home/kohsuke/ws/groovy-sandbox/target/checkout/target/site/apidocs'
+-docencoding
+'UTF-8'
+-doctitle
+'Groovy Sandbox 1.10 API'
+-link
+'http://java.sun.com/j2se/1.5.0/docs/api'
+-use
+-version
+-windowtitle
+'Groovy Sandbox 1.10 API'
