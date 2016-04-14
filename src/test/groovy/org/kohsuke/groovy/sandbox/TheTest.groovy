@@ -150,6 +150,53 @@ class TheTest extends TestCase {
         )
     }
 
+    void testPrePostfixOperators() {
+
+        // Should work fine outside of closure with i.next() syntax
+
+        eval("""
+def i=0
+i.next()
+        """);
+
+        // Should work fine inside closure with i.next() syntax
+
+        eval("""
+def myClosure = {
+    def i=0
+    i.next()
+}
+myClosure()
+""");
+
+        // Should work fine outside of closure with i++ syntax
+        eval("""
+def i=0
+++i
+""");
+
+        // Should work fine inside of closure with i++ syntax (postfix
+
+        eval("""
+def myClosure = {
+    def i=0
+    ++i
+}
+myClosure()
+""");
+
+        // Try also postfix increment operator
+
+        eval("""
+def myClosure = {
+    def i=0
+    i++
+}
+myClosure()
+""");
+
+    }
+
     void testClosure() {
         assertIntercept(
                 "Script1\$_run_closure1.call()/Integer.class/Class:forName(String)",

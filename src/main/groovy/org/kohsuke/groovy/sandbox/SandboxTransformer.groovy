@@ -454,7 +454,7 @@ class SandboxTransformer extends CompilationCustomizer {
                                 new ListExpression([
                                     atom,
                                     new BinaryExpression(atom, ASSIGNMENT_OP,
-                                        withLoc(atom,new MethodCallExpression(atom,op,EMPTY_ARGUMENTS)))
+                                        withLoc(atom,makeNonImplicitThisMethodCallExpression(atom,op,EMPTY_ARGUMENTS)))
                                 ]),
                                 new Token(Types.LEFT_SQUARE_BRACKET, "[", -1,-1),
                                 new ConstantExpression(0)
@@ -462,7 +462,7 @@ class SandboxTransformer extends CompilationCustomizer {
                     } else {
                         // ++a -> a=a.next()
                         return transform(withLoc(whole,new BinaryExpression(atom,ASSIGNMENT_OP,
-                                withLoc(atom,new MethodCallExpression(atom,op,EMPTY_ARGUMENTS)))
+                                withLoc(atom,makeNonImplicitThisMethodCallExpression(atom,op,EMPTY_ARGUMENTS)))
                         ));
                     }
                 } else {
@@ -489,6 +489,12 @@ class SandboxTransformer extends CompilationCustomizer {
             }
 
             return whole;
+        }
+
+        private MethodCallExpression makeNonImplicitThisMethodCallExpression(Expression objectExpression, String method, Expression arguments) {
+            MethodCallExpression exp = new MethodCallExpression(objectExpression, (Expression)(new ConstantExpression(method)), arguments);
+            exp.setImplicitThis(false);
+            return exp;
         }
 
         /**
