@@ -3,7 +3,7 @@ package org.kohsuke.groovy.sandbox
 import org.codehaus.groovy.ast.ASTNode
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer
 import org.codehaus.groovy.ast.ClassNode
-import org.codehaus.groovy.ast.GroovyClassVisitor
+import org.codehaus.groovy.ast.MethodNode
 import org.codehaus.groovy.ast.Parameter
 import org.codehaus.groovy.ast.expr.ArgumentListExpression
 import org.codehaus.groovy.ast.expr.AttributeExpression
@@ -144,8 +144,19 @@ class SandboxTransformer extends CompilationCustomizer {
          */
         private boolean visitingClosureBody;
 
+        /**
+         * Current method we are traversing.
+         */
+        private MethodNode method;
+
         VisitorImpl(SourceUnit sourceUnit) {
             this.sourceUnit = sourceUnit
+        }
+
+        @Override
+        void visitMethod(MethodNode node) {
+            this.method = node;
+            super.visitMethod(node)
         }
 
         /**
@@ -219,13 +230,20 @@ class SandboxTransformer extends CompilationCustomizer {
                 else
                     objExp = transform(call.objectExpression)
 
-                return makeCheckedCall("checkedCall",[
-                        objExp,
-                        boolExp(call.safe),
-                        boolExp(call.spreadSafe),
-                        transform(call.method),
-                        transformArguments(call.arguments)
-                    ])
+                def args = [
+                    transform(call.method),
+                    transformArguments(call.arguments)
+                ]
+
+                if (call.objectExpression instanceof VariableExpression && call.objectExpression.name=="super") {
+                    return makeCheckedCall("checkedSuperCall", [new ClassExpression(method.declaringClass),objExp]+args)
+                } else {
+                    return makeCheckedCall("checkedCall", [
+                            objExp,
+                            boolExp(call.safe),
+                            boolExp(call.spreadSafe)
+                    ]+args)
+                }
             }
             
             if (exp instanceof StaticMethodCallExpression && interceptMethodCall) {

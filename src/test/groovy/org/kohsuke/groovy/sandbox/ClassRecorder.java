@@ -60,6 +60,12 @@ public class ClassRecorder extends GroovyInterceptor {
     }
 
     @Override
+    public Object onSuperCall(Invoker invoker, Class senderType, Object receiver, String method, Object... args) throws Throwable {
+        format("%s.super(%s).%s(%s)",type(receiver),type(senderType),method,arguments(args));
+        return super.onSuperCall(invoker, senderType, receiver, method, args);
+    }
+
+    @Override
     public Object onGetProperty(Invoker invoker, Object receiver, String property) throws Throwable {
         format("%s.%s",type(receiver),property);
         return super.onGetProperty(invoker, receiver, property);

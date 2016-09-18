@@ -732,4 +732,29 @@ Exception.message
         assertIntercept("new HashMap()/HashMap.get(String)/Script1.println(null)",null,"println(new HashMap().dummy);")
         assertIntercept("new HashMap()/HashMap.put(String,Integer)",5,"new HashMap().dummy=5")
     }
+
+    /**
+     * Intercepts super.toString()
+     */
+    void testSuperCall() {
+        assertIntercept([
+            "new Zot()",
+            "Zot.toString()",
+            "Zot.super(Bar).toString()",
+            "String.plus(String)"
+        ],"xfoo",'''
+            class Foo {
+                public String toString() {
+                    return "foo";
+                }
+            }
+            class Bar extends Foo {
+                public String toString() {
+                    return "x"+super.toString();
+                }
+            }
+            class Zot extends Bar {}
+            new Zot().toString();
+        ''')
+    }
 }

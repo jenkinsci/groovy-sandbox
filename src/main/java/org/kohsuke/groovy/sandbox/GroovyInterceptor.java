@@ -1,5 +1,7 @@
 package org.kohsuke.groovy.sandbox;
 
+import org.kohsuke.groovy.sandbox.impl.Super;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -38,6 +40,13 @@ public abstract class GroovyInterceptor {
      */
     public Object onNewInstance(Invoker invoker, Class receiver, Object... args) throws Throwable {
         return invoker.call(receiver,null,args);
+    }
+
+    /**
+     * Intercepts an super method call, like "super.foo(...)"
+     */
+    public Object onSuperCall(Invoker invoker, Class senderType, Object receiver, String method, Object... args) throws Throwable {
+        return invoker.call(new Super(senderType,receiver),method,args);
     }
 
     /**

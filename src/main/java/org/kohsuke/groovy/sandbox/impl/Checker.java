@@ -9,7 +9,6 @@ import groovy.lang.MissingMethodException;
 import groovy.lang.MissingPropertyException;
 import org.codehaus.groovy.classgen.asm.BinaryExpressionHelper;
 import org.codehaus.groovy.runtime.InvokerHelper;
-import org.codehaus.groovy.runtime.MetaClassHelper;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
 import org.codehaus.groovy.runtime.callsite.CallSite;
 import org.codehaus.groovy.runtime.callsite.CallSiteArray;
@@ -194,6 +193,21 @@ public class Checker {
                     return fakeCallSite("<init>").callConstructor((Class)receiver,args);
             }
         }.call(_type,null,fixNull(_args));
+    }
+
+    public static Object checkedSuperCall(Class _senderType, Object _receiver, String _method, Object[] _args) throws Throwable {
+        Super s = new Super(_senderType, _receiver);
+        return new VarArgInvokerChain(s) {
+            public Object call(Object _s, String method, Object... args) throws Throwable {
+                Super s = (Super)_s;
+                if (chain.hasNext()) {
+                    return chain.next().onSuperCall(this, s.senderType, s.receiver, method, args);
+                } else {
+                    MetaClass mc = InvokerHelper.getMetaClass(s.receiver.getClass());
+                    return mc.invokeMethod(s.senderType.getSuperclass(), s.receiver, method, args, true, true);
+                }
+            }
+        }.call(s,_method,fixNull(_args));
     }
 
     public static Object checkedGetProperty(final Object _receiver, boolean safe, boolean spread, Object _property) throws Throwable {
