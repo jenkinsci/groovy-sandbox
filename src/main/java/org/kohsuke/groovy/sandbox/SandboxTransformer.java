@@ -1,42 +1,49 @@
-package org.kohsuke.groovy.sandbox
+package org.kohsuke.groovy.sandbox;
 
-import org.codehaus.groovy.ast.ASTNode
-import org.codehaus.groovy.ast.ClassCodeExpressionTransformer
-import org.codehaus.groovy.ast.ClassNode
-import org.codehaus.groovy.ast.MethodNode
-import org.codehaus.groovy.ast.Parameter
-import org.codehaus.groovy.ast.expr.ArgumentListExpression
-import org.codehaus.groovy.ast.expr.AttributeExpression
-import org.codehaus.groovy.ast.expr.ClassExpression
-import org.codehaus.groovy.ast.expr.ClosureExpression
-import org.codehaus.groovy.ast.expr.ConstantExpression
-import org.codehaus.groovy.ast.expr.DeclarationExpression
-import org.codehaus.groovy.ast.expr.Expression
-import org.codehaus.groovy.ast.expr.ListExpression
-import org.codehaus.groovy.ast.expr.MethodCallExpression
-import org.codehaus.groovy.ast.expr.MethodPointerExpression
-import org.codehaus.groovy.ast.expr.PostfixExpression
-import org.codehaus.groovy.ast.expr.PrefixExpression
-import org.codehaus.groovy.ast.expr.PropertyExpression
-import org.codehaus.groovy.ast.expr.StaticMethodCallExpression
-import org.codehaus.groovy.ast.expr.TupleExpression
-import org.codehaus.groovy.classgen.GeneratorContext
-import org.codehaus.groovy.control.CompilePhase
-import org.codehaus.groovy.control.SourceUnit
-import org.codehaus.groovy.control.customizers.CompilationCustomizer
-import org.codehaus.groovy.ast.expr.ConstructorCallExpression
-import org.codehaus.groovy.ast.expr.BinaryExpression
-import org.codehaus.groovy.runtime.ScriptBytecodeAdapter
-import org.codehaus.groovy.syntax.Token
-import org.codehaus.groovy.syntax.Types
-import org.codehaus.groovy.ast.expr.FieldExpression
-import org.codehaus.groovy.ast.expr.VariableExpression
-import org.kohsuke.groovy.sandbox.impl.Checker
-import org.kohsuke.groovy.sandbox.impl.Ops
-import org.kohsuke.groovy.sandbox.impl.SandboxedMethodClosure
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import org.codehaus.groovy.ast.ASTNode;
+import org.codehaus.groovy.ast.ClassCodeExpressionTransformer;
+import org.codehaus.groovy.ast.ClassNode;
+import org.codehaus.groovy.ast.ConstructorNode;
+import org.codehaus.groovy.ast.FieldNode;
+import org.codehaus.groovy.ast.MethodNode;
+import org.codehaus.groovy.ast.Parameter;
+import org.codehaus.groovy.ast.expr.ArgumentListExpression;
+import org.codehaus.groovy.ast.expr.AttributeExpression;
+import org.codehaus.groovy.ast.expr.ClassExpression;
+import org.codehaus.groovy.ast.expr.ClosureExpression;
+import org.codehaus.groovy.ast.expr.ConstantExpression;
+import org.codehaus.groovy.ast.expr.DeclarationExpression;
+import org.codehaus.groovy.ast.expr.Expression;
+import org.codehaus.groovy.ast.expr.ListExpression;
+import org.codehaus.groovy.ast.expr.MethodCallExpression;
+import org.codehaus.groovy.ast.expr.MethodPointerExpression;
+import org.codehaus.groovy.ast.expr.PostfixExpression;
+import org.codehaus.groovy.ast.expr.PrefixExpression;
+import org.codehaus.groovy.ast.expr.PropertyExpression;
+import org.codehaus.groovy.ast.expr.StaticMethodCallExpression;
+import org.codehaus.groovy.ast.expr.TupleExpression;
+import org.codehaus.groovy.classgen.GeneratorContext;
+import org.codehaus.groovy.control.CompilePhase;
+import org.codehaus.groovy.control.SourceUnit;
+import org.codehaus.groovy.control.customizers.CompilationCustomizer;
+import org.codehaus.groovy.ast.expr.ConstructorCallExpression;
+import org.codehaus.groovy.ast.expr.BinaryExpression;
+import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
+import org.codehaus.groovy.syntax.Token;
+import org.codehaus.groovy.syntax.Types;
+import org.codehaus.groovy.ast.expr.FieldExpression;
+import org.codehaus.groovy.ast.expr.VariableExpression;
+import org.kohsuke.groovy.sandbox.impl.Checker;
+import org.kohsuke.groovy.sandbox.impl.Ops;
+import org.kohsuke.groovy.sandbox.impl.SandboxedMethodClosure;
 
-import static org.codehaus.groovy.ast.expr.ArgumentListExpression.EMPTY_ARGUMENTS
-import static org.codehaus.groovy.syntax.Types.*
+import static org.codehaus.groovy.ast.expr.ArgumentListExpression.EMPTY_ARGUMENTS;
+import org.codehaus.groovy.ast.stmt.Statement;
+import static org.codehaus.groovy.syntax.Types.*;
 
 /**
  * Transforms Groovy code at compile-time to intercept when the script interacts with the outside world.
@@ -77,7 +84,7 @@ import static org.codehaus.groovy.syntax.Types.*
  *
  * @author Kohsuke Kawaguchi
  */
-class SandboxTransformer extends CompilationCustomizer {
+public class SandboxTransformer extends CompilationCustomizer {
     /**
      * Intercept method calls
      */
@@ -102,18 +109,30 @@ class SandboxTransformer extends CompilationCustomizer {
      */
     boolean interceptAttribute=true;
 
-    SandboxTransformer() {
-        super(CompilePhase.CANONICALIZATION)
+    public SandboxTransformer() {
+        super(CompilePhase.CANONICALIZATION);
     }
 
     @Override
-    void call(SourceUnit source, GeneratorContext context, ClassNode classNode) {
-        def visitor = createVisitor(source);
+    public void call(SourceUnit source, GeneratorContext context, ClassNode classNode) {
+        if (classNode == null) { // TODO is this even possible? CpsTransformer implies it is not.
+            return;
+        }
 
-        classNode?.declaredConstructors?.each { visitor.visitMethod(it) }
-        classNode?.methods?.each { visitor.visitMethod(it) }
-        classNode?.objectInitializerStatements?.each { it.visit(visitor) }
-        classNode?.fields?.each { visitor.visitField(it) }
+        ClassCodeExpressionTransformer visitor = createVisitor(source);
+
+        for (ConstructorNode c : classNode.getDeclaredConstructors()) {
+            visitor.visitMethod(c);
+        }
+        for (MethodNode m : classNode.getMethods()) {
+            visitor.visitMethod(m);
+        }
+        for (Statement s : classNode.getObjectInitializerStatements()) {
+            s.visit(visitor);
+        }
+        for (FieldNode f : classNode.getFields()) {
+            visitor.visitField(f);
+        }
     }
 
     public ClassCodeExpressionTransformer createVisitor(SourceUnit source) {
@@ -150,28 +169,14 @@ class SandboxTransformer extends CompilationCustomizer {
         private MethodNode method;
 
         VisitorImpl(SourceUnit sourceUnit) {
-            this.sourceUnit = sourceUnit
+            this.sourceUnit = sourceUnit;
         }
 
         @Override
-        void visitMethod(MethodNode node) {
+        public void visitMethod(MethodNode node) {
             this.method = node;
-            super.visitMethod(node)
+            super.visitMethod(node);
         }
-
-        /**
-         * Push/pop the flag while we evaluate the body.
-         */
-        private void visitClosure(boolean flag, Closure body) {
-            boolean old = visitingClosureBody;
-            visitingClosureBody = flag;
-            try {
-                body.call();
-            } finally {
-                visitingClosureBody = old;
-            }
-        }
-
 
         /**
          * Transforms the arguments of a call.
@@ -180,25 +185,30 @@ class SandboxTransformer extends CompilationCustomizer {
          */
         Expression transformArguments(Expression e) {
             List<Expression> l;
-            if (e instanceof TupleExpression)
-                l = e.expressions.collect { transform(it) };
-            else
-                l = [transform(e)];
+            if (e instanceof TupleExpression) {
+                List<Expression> expressions = ((TupleExpression) e).getExpressions();
+                l = new ArrayList<>(expressions.size());
+                for (Expression expression : expressions) {
+                    l.add(transform(expression));
+                }
+            } else {
+                l = Collections.singletonList(transform(e));
+            }
 
             // checkdCall expects an array
             return withLoc(e,new MethodCallExpression(new ListExpression(l),"toArray",new ArgumentListExpression()));
         }
         
-        Expression makeCheckedCall(String name, Collection<Expression> arguments) {
+        Expression makeCheckedCall(String name, Expression... arguments) {
             return new StaticMethodCallExpression(checkerClass,name,
-                new ArgumentListExpression(arguments as Expression[]))
+                new ArgumentListExpression(arguments));
         }
     
         @Override
-        Expression transform(Expression exp) {
+        public Expression transform(Expression exp) {
             Expression o = innerTransform(exp);
             if (o!=exp) {
-                o.sourcePosition = exp;
+                o.setSourcePosition(exp);
             }
             return o;
         }
@@ -207,12 +217,19 @@ class SandboxTransformer extends CompilationCustomizer {
             if (exp instanceof ClosureExpression) {
                 // ClosureExpression.transformExpression doesn't visit the code inside
                 ClosureExpression ce = (ClosureExpression)exp;
-                withVarScope {
-                    for (Parameter p : ce.parameters) {
-                        declareVariable(p);
+                try (StackVariableSet scope = new StackVariableSet(this)) {
+                    Parameter[] parameters = ce.getParameters();
+                    if (parameters != null) {
+                        for (Parameter p : parameters) {
+                            declareVariable(p);
+                        }
                     }
-                    visitClosure(true) {
-                        ce.code.visit(this)
+                    boolean old = visitingClosureBody;
+                    visitingClosureBody = true;
+                    try {
+                        ce.getCode().visit(this);
+                    } finally {
+                        visitingClosureBody = old;
                     }
                 }
             }
@@ -222,27 +239,26 @@ class SandboxTransformer extends CompilationCustomizer {
                 // lhs+rhs => lhs.plus(rhs)
                 // Integer.plus(Integer) => DefaultGroovyMethods.plus
                 // lhs || rhs => lhs.or(rhs)
-                MethodCallExpression call = exp;
+                MethodCallExpression call = (MethodCallExpression) exp;
 
-                def objExp;
-                if (exp.isImplicitThis() && visitingClosureBody)
+                Expression objExp;
+                if (call.isImplicitThis() && visitingClosureBody)
                     objExp = CLOSURE_THIS;
                 else
-                    objExp = transform(call.objectExpression)
+                    objExp = transform(call.getObjectExpression());
 
-                def args = [
-                    transform(call.method),
-                    transformArguments(call.arguments)
-                ]
+                Expression arg1 = call.getMethod();
+                Expression arg2 = transformArguments(call.getArguments());
 
-                if (call.objectExpression instanceof VariableExpression && call.objectExpression.name=="super") {
-                    return makeCheckedCall("checkedSuperCall", [new ClassExpression(method.declaringClass),objExp]+args)
+                if (call.getObjectExpression() instanceof VariableExpression && ((VariableExpression) call.getObjectExpression()).getName().equals("super")) {
+                    return makeCheckedCall("checkedSuperCall", new ClassExpression(method.getDeclaringClass()), objExp, arg1, arg2);
                 } else {
-                    return makeCheckedCall("checkedCall", [
+                    return makeCheckedCall("checkedCall",
                             objExp,
-                            boolExp(call.safe),
-                            boolExp(call.spreadSafe)
-                    ]+args)
+                            boolExp(call.isSafe()),
+                            boolExp(call.isSpreadSafe()),
+                            arg1,
+                            arg2);
                 }
             }
             
@@ -254,29 +270,29 @@ class SandboxTransformer extends CompilationCustomizer {
                     Static import handling uses StaticMethodCallExpression, and so are some
                     ASTTransformations like ToString,EqualsAndHashCode, etc.
                  */
-                StaticMethodCallExpression call = exp;
-                return makeCheckedCall("checkedStaticCall", [
-                            new ClassExpression(call.ownerType),
-                            new ConstantExpression(call.method),
-                            transformArguments(call.arguments)
-                    ])
+                StaticMethodCallExpression call = (StaticMethodCallExpression) exp;
+                return makeCheckedCall("checkedStaticCall",
+                            new ClassExpression(call.getOwnerType()),
+                            new ConstantExpression(call.getMethod()),
+                            transformArguments(call.getArguments())
+                    );
             }
 
             if (exp instanceof MethodPointerExpression && interceptMethodCall) {
-                MethodPointerExpression mpe = exp;
+                MethodPointerExpression mpe = (MethodPointerExpression) exp;
                 return new ConstructorCallExpression(
                         new ClassNode(SandboxedMethodClosure.class),
-                        new ArgumentListExpression(mpe.expression, mpe.methodName)
-                )
+                        new ArgumentListExpression(mpe.getExpression(), mpe.getMethodName())
+                );
             }
 
             if (exp instanceof ConstructorCallExpression && interceptConstructor) {
-                if (!exp.isSpecialCall()) {
+                if (!((ConstructorCallExpression) exp).isSpecialCall()) {
                     // creating a new instance, like "new Foo(...)"
-                    return makeCheckedCall("checkedConstructor", [
-                            new ClassExpression(exp.type),
-                            transformArguments(exp.arguments)
-                    ])
+                    return makeCheckedCall("checkedConstructor",
+                            new ClassExpression(exp.getType()),
+                            transformArguments(((ConstructorCallExpression) exp).getArguments())
+                    );
                 } else {
                     // we can't really intercept constructor calling super(...) or this(...),
                     // since it has to be the first method call in a constructor.
@@ -284,45 +300,48 @@ class SandboxTransformer extends CompilationCustomizer {
             }
 
             if (exp instanceof AttributeExpression && interceptAttribute) {
-                return makeCheckedCall("checkedGetAttribute", [
-                    transform(exp.objectExpression),
-                    boolExp(exp.safe),
-                    boolExp(exp.spreadSafe),
-                    transform(exp.property)
-                ])
+                AttributeExpression ae = (AttributeExpression) exp;
+                return makeCheckedCall("checkedGetAttribute",
+                    transform(ae.getObjectExpression()),
+                    boolExp(ae.isSafe()),
+                    boolExp(ae.isSpreadSafe()),
+                    transform(ae.getProperty())
+                );
             }
 
             if (exp instanceof PropertyExpression && interceptProperty) {
-                return makeCheckedCall("checkedGetProperty", [
-                    transformObjectExpression(exp),
-                    boolExp(exp.safe),
-                    boolExp(exp.spreadSafe),
-                    transform(exp.property)
-                ])
+                PropertyExpression pe = (PropertyExpression) exp;
+                return makeCheckedCall("checkedGetProperty",
+                    transformObjectExpression(pe),
+                    boolExp(pe.isSafe()),
+                    boolExp(pe.isSpreadSafe()),
+                    transform(pe.getProperty())
+                );
             }
 
             if (exp instanceof VariableExpression && interceptProperty) {
-                VariableExpression vexp = exp;
-                if (isLocalVariable(vexp.name) || vexp.name=="this" || vexp.name=="super") {
+                VariableExpression vexp = (VariableExpression) exp;
+                if (isLocalVariable(vexp.getName()) || vexp.getName().equals("this") || vexp.getName().equals("super")) {
                     // We don't care what sandboxed code does to itself until it starts interacting with outside world
                     return super.transform(exp);
                 } else {
                     // if the variable is not in-scope local variable, it gets treated as a property access with implicit this.
                     // see AsmClassGenerator.visitVariableExpression and processClassVariable.
-                    PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, vexp.name);
-                    pexp.implicitThis = true;
+                    PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, vexp.getName());
+                    pexp.setImplicitThis(true);
                     withLoc(exp,pexp);
                     return transform(pexp);
                 }
             }
 
             if (exp instanceof DeclarationExpression) {
-                handleDeclarations(exp);
+                handleDeclarations((DeclarationExpression) exp);
             }
 
             if (exp instanceof BinaryExpression) {
+                BinaryExpression be = (BinaryExpression) exp;
                 // this covers everything from a+b to a=b
-                if (ofType(exp.operation.type,ASSIGNMENT_OPERATOR)) {
+                if (ofType(be.getOperation().getType(),ASSIGNMENT_OPERATOR)) {
                     // simple assignment like '=' as well as compound assignments like "+=","-=", etc.
 
                     // How we dispatch this depends on the type of left expression.
@@ -330,24 +349,24 @@ class SandboxTransformer extends CompilationCustomizer {
                     // What can be LHS?
                     // according to AsmClassGenerator, PropertyExpression, AttributeExpression, FieldExpression, VariableExpression
 
-                    Expression lhs = exp.leftExpression;
+                    Expression lhs = be.getLeftExpression();
                     if (lhs instanceof VariableExpression) {
-                        VariableExpression vexp = lhs;
-                        if (isLocalVariable(vexp.name) || vexp.name=="this" || vexp.name=="super") {
+                        VariableExpression vexp = (VariableExpression) lhs;
+                        if (isLocalVariable(vexp.getName()) || vexp.getName().equals("this") || vexp.getName().equals("super")) {
                             // We don't care what sandboxed code does to itself until it starts interacting with outside world
                             return super.transform(exp);
                         } else {
                             // if the variable is not in-scope local variable, it gets treated as a property access with implicit this.
                             // see AsmClassGenerator.visitVariableExpression and processClassVariable.
-                            PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, vexp.name);
-                            pexp.implicitThis = true;
-                            pexp.sourcePosition = vexp;
+                            PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, vexp.getName());
+                            pexp.setImplicitThis(true);
+                            pexp.setSourcePosition(vexp);
 
                             lhs = pexp;
                         }
                     } // no else here
                     if (lhs instanceof PropertyExpression) {
-                        def name = null;
+                        String name = null;
                         if (lhs instanceof AttributeExpression) {
                             if (interceptAttribute)
                                 name = "checkedSetAttribute";
@@ -358,14 +377,15 @@ class SandboxTransformer extends CompilationCustomizer {
                         if (name==null) // not intercepting?
                             return super.transform(exp);
 
-                        return makeCheckedCall(name, [
-                                transformObjectExpression(lhs),
-                                lhs.property,
-                                boolExp(lhs.safe),
-                                boolExp(lhs.spreadSafe),
-                                intExp(exp.operation.type),
-                                transform(exp.rightExpression),
-                        ])
+                        PropertyExpression pe = (PropertyExpression) lhs;
+                        return makeCheckedCall(name,
+                                transformObjectExpression(pe),
+                                pe.getProperty(),
+                                boolExp(pe.isSafe()),
+                                boolExp(pe.isSpreadSafe()),
+                                intExp(be.getOperation().getType()),
+                                transform(be.getRightExpression())
+                        );
                     } else
                     if (lhs instanceof FieldExpression) {
                         // while javadoc of FieldExpression isn't very clear,
@@ -374,106 +394,110 @@ class SandboxTransformer extends CompilationCustomizer {
                         return super.transform(exp);
                     } else
                     if (lhs instanceof BinaryExpression) {
-                        if (lhs.operation.type==Types.LEFT_SQUARE_BRACKET && interceptArray) {// expression of the form "x[y] = z"
-                            return makeCheckedCall("checkedSetArray", [
-                                    transform(lhs.leftExpression),
-                                    transform(lhs.rightExpression),
-                                    intExp(exp.operation.type),
-                                    transform(exp.rightExpression)
-                            ])
+                        BinaryExpression lbe = (BinaryExpression) lhs;
+                        if (lbe.getOperation().getType()==Types.LEFT_SQUARE_BRACKET && interceptArray) {// expression of the form "x[y] = z"
+                            return makeCheckedCall("checkedSetArray",
+                                    transform(lbe.getLeftExpression()),
+                                    transform(lbe.getRightExpression()),
+                                    intExp(be.getOperation().getType()),
+                                    transform(be.getRightExpression())
+                            );
                         }
                     } else
-                        throw new AssertionError("Unexpected LHS of an assignment: ${lhs.class}")
+                        throw new AssertionError("Unexpected LHS of an assignment: " + lhs.getClass());
                 }
-                if (exp.operation.type==Types.LEFT_SQUARE_BRACKET) {// array reference
+                if (be.getOperation().getType()==Types.LEFT_SQUARE_BRACKET) {// array reference
                     if (interceptArray)
-                        return makeCheckedCall("checkedGetArray", [
-                                transform(exp.leftExpression),
-                                transform(exp.rightExpression)
-                        ])
+                        return makeCheckedCall("checkedGetArray",
+                                transform(be.getLeftExpression()),
+                                transform(be.getRightExpression())
+                        );
                 } else
-                if (exp.operation.type==Types.KEYWORD_INSTANCEOF) {// instanceof operator
+                if (be.getOperation().getType()==Types.KEYWORD_INSTANCEOF) {// instanceof operator
                     return super.transform(exp);
                 } else
-                if (Ops.isLogicalOperator(exp.operation.type)) {
+                if (Ops.isLogicalOperator(be.getOperation().getType())) {
                     return super.transform(exp);
                 } else
-                if (exp.operation.type==Types.KEYWORD_IN) {// membership operator: JENKINS-28154
+                if (be.getOperation().getType()==Types.KEYWORD_IN) {// membership operator: JENKINS-28154
                     // This requires inverted operand order:
                     // "a in [...]" -> "[...].isCase(a)"
                     if (interceptMethodCall)
-                        return makeCheckedCall("checkedCall", [
-                                transform(exp.rightExpression),
+                        return makeCheckedCall("checkedCall",
+                                transform(be.getRightExpression()),
                                 boolExp(false),
                                 boolExp(false),
                                 stringExp("isCase"),
-                                transform(exp.leftExpression),
+                                transform(be.getLeftExpression())
 
-                        ])
+                        );
                 } else
-                if (Ops.isRegexpComparisonOperator(exp.operation.type)) {
+                if (Ops.isRegexpComparisonOperator(be.getOperation().getType())) {
                     if (interceptMethodCall)
-                        return makeCheckedCall("checkedStaticCall", [
+                        return makeCheckedCall("checkedStaticCall",
                                 classExp(ScriptBytecodeAdapterClass),
-                                stringExp(Ops.binaryOperatorMethods(exp.operation.type)),
-                                transform(exp.leftExpression),
-                                transform(exp.rightExpression)
-                        ])
+                                stringExp(Ops.binaryOperatorMethods(be.getOperation().getType())),
+                                transform(be.getLeftExpression()),
+                                transform(be.getRightExpression())
+                        );
                 } else
-                if (Ops.isComparisionOperator(exp.operation.type)) {
+                if (Ops.isComparisionOperator(be.getOperation().getType())) {
                     if (interceptMethodCall) {
-                        return makeCheckedCall("checkedComparison", [
-                                transform(exp.leftExpression),
-                                intExp(exp.operation.type),
-                                transform(exp.rightExpression)
-                        ])
+                        return makeCheckedCall("checkedComparison",
+                                transform(be.getLeftExpression()),
+                                intExp(be.getOperation().getType()),
+                                transform(be.getRightExpression())
+                        );
                     }
                 } else
                 if (interceptMethodCall) {
                     // normally binary operators like a+b
                     // TODO: check what other weird binary operators land here
-                    return makeCheckedCall("checkedBinaryOp",[
-                            transform(exp.leftExpression),
-                            intExp(exp.operation.type),
-                            transform(exp.rightExpression)
-                    ])
+                    return makeCheckedCall("checkedBinaryOp",
+                            transform(be.getLeftExpression()),
+                            intExp(be.getOperation().getType()),
+                            transform(be.getRightExpression())
+                    );
                 }
             }
 
             if (exp instanceof PostfixExpression) {
-                return prefixPostfixExp(exp, exp.expression, exp.operation, "Postfix");
+                PostfixExpression pe = (PostfixExpression) exp;
+                return prefixPostfixExp(exp, pe.getExpression(), pe.getOperation(), "Postfix");
             }
             if (exp instanceof PrefixExpression) {
-                return prefixPostfixExp(exp, exp.expression, exp.operation, "Prefix");
+                PrefixExpression pe = (PrefixExpression) exp;
+                return prefixPostfixExp(exp, pe.getExpression(), pe.getOperation(), "Prefix");
             }
 
-            return super.transform(exp)
+            return super.transform(exp);
         }
 
         private Expression prefixPostfixExp(Expression whole, Expression atom, Token opToken, String mode) {
-            String op = opToken.text=="++" ? "next" : "previous";
+            String op = opToken.getText().equals("++") ? "next" : "previous";
 
             // a[b]++
-            if (atom instanceof BinaryExpression && atom.operation.type==Types.LEFT_SQUARE_BRACKET && interceptArray) {
-                return makeCheckedCall("checked${mode}Array", [
-                        transform(atom.leftExpression),
-                        transform(atom.rightExpression),
+            if (atom instanceof BinaryExpression && ((BinaryExpression) atom).getOperation().getType()==Types.LEFT_SQUARE_BRACKET && interceptArray) {
+                return makeCheckedCall("checked" + mode + "Array",
+                        transform(((BinaryExpression) atom).getLeftExpression()),
+                        transform(((BinaryExpression) atom).getRightExpression()),
                         stringExp(op)
-                ])
+                );
             }
 
             // a++
             if (atom instanceof VariableExpression) {
-                if (isLocalVariable(atom.name)) {
-                    if (mode=="Postfix") {
+                VariableExpression ve = (VariableExpression) atom;
+                if (isLocalVariable(ve.getName())) {
+                    if (mode.equals("Postfix")) {
                         // a trick to rewrite a++ without introducing a new local variable
                         //     a++ -> [a,a=a.next()][0]
                         return transform(withLoc(whole,new BinaryExpression(
-                                new ListExpression([
+                                new ListExpression(Arrays.asList(
                                     atom,
                                     new BinaryExpression(atom, ASSIGNMENT_OP,
                                         withLoc(atom,new MethodCallExpression(atom,op,EMPTY_ARGUMENTS)))
-                                ]),
+                                )),
                                 new Token(Types.LEFT_SQUARE_BRACKET, "[", -1,-1),
                                 new ConstantExpression(0)
                         )));
@@ -486,9 +510,9 @@ class SandboxTransformer extends CompilationCustomizer {
                 } else {
                     // if the variable is not in-scope local variable, it gets treated as a property access with implicit this.
                     // see AsmClassGenerator.visitVariableExpression and processClassVariable.
-                    PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, atom.name);
-                    pexp.implicitThis = true;
-                    pexp.sourcePosition = atom;
+                    PropertyExpression pexp = new PropertyExpression(VariableExpression.THIS_EXPRESSION, ve.getName());
+                    pexp.setImplicitThis(true);
+                    pexp.setSourcePosition(atom);
 
                     atom = pexp;
                     // fall through to the "a.b++" case below
@@ -497,13 +521,14 @@ class SandboxTransformer extends CompilationCustomizer {
 
             // a.b++
             if (atom instanceof PropertyExpression && interceptProperty) {
-                return makeCheckedCall("checked${mode}Property", [
-                        transformObjectExpression(atom),
-                        atom.property,
-                        boolExp(atom.safe),
-                        boolExp(atom.spreadSafe),
+                PropertyExpression pe = (PropertyExpression) atom;
+                return makeCheckedCall("checked" + mode + "Property",
+                        transformObjectExpression(pe),
+                        pe.getProperty(),
+                        boolExp(pe.isSafe()),
+                        boolExp(pe.isSpreadSafe()),
                         stringExp(op)
-                ]);
+                );
             }
 
             return whole;
@@ -513,7 +538,7 @@ class SandboxTransformer extends CompilationCustomizer {
          * Decorates an {@link ASTNode} by copying source location from another node.
          */
         private <T extends ASTNode> T withLoc(ASTNode src, T t) {
-            t.sourcePosition = src;
+            t.setSourcePosition(src);
             return t;
         }
 
@@ -521,16 +546,15 @@ class SandboxTransformer extends CompilationCustomizer {
          * See {@link #visitingClosureBody} for the details of what this method is about.
          */
         private Expression transformObjectExpression(PropertyExpression exp) {
-            def objExp;
-            if (exp.isImplicitThis() && visitingClosureBody)
-                objExp = CLOSURE_THIS;
-            else
-                objExp = transform(exp.objectExpression)
-            objExp
+            if (exp.isImplicitThis() && visitingClosureBody) {
+                return CLOSURE_THIS;
+            } else {
+                return transform(exp.getObjectExpression());
+            }
         }
 
         ConstantExpression boolExp(boolean v) {
-            return v ? ConstantExpression.PRIM_TRUE : ConstantExpression.PRIM_FALSE
+            return v ? ConstantExpression.PRIM_TRUE : ConstantExpression.PRIM_FALSE;
         }
 
         ConstantExpression intExp(int v) {
@@ -551,10 +575,10 @@ class SandboxTransformer extends CompilationCustomizer {
         }
     }
 
-    static final Token ASSIGNMENT_OP = new Token(Types.ASSIGN, '=', -1, -1)
+    static final Token ASSIGNMENT_OP = new Token(Types.ASSIGN, "=", -1, -1);
 
-    static final def checkerClass = new ClassNode(Checker.class)
-    static final def ScriptBytecodeAdapterClass = new ClassNode(ScriptBytecodeAdapter.class)
+    static final ClassNode checkerClass = new ClassNode(Checker.class);
+    static final ClassNode ScriptBytecodeAdapterClass = new ClassNode(ScriptBytecodeAdapter.class);
 
     /**
      * Expression that accesses the closure object itself from within the closure.
@@ -564,8 +588,8 @@ class SandboxTransformer extends CompilationCustomizer {
     static final Expression CLOSURE_THIS;
 
     static {
-        def aw = new MethodCallExpression(new VariableExpression("this"),"asWritable",EMPTY_ARGUMENTS)
-        aw.implicitThis = true;
+        MethodCallExpression aw = new MethodCallExpression(new VariableExpression("this"),"asWritable",EMPTY_ARGUMENTS);
+        aw.setImplicitThis(true);
 
         CLOSURE_THIS = new MethodCallExpression(aw,"getOwner",EMPTY_ARGUMENTS);
     }
