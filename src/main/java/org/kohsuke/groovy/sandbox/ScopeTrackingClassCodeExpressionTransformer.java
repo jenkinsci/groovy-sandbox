@@ -1,6 +1,7 @@
 package org.kohsuke.groovy.sandbox;
 
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer;
+import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.Parameter;
 import org.codehaus.groovy.ast.Variable;
@@ -42,6 +43,13 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
                 declareVariable(p);
             }
             super.visitMethod(node);
+        }
+    }
+
+    @Override
+    public void visitField(FieldNode node) {
+        try (StackVariableSet scope = new StackVariableSet(this)) {
+            super.visitField(node);
         }
     }
 
