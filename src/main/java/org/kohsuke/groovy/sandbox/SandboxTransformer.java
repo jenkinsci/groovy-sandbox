@@ -366,18 +366,26 @@ public class SandboxTransformer extends CompilationCustomizer {
                         }
                     } // no else here
                     if (lhs instanceof PropertyExpression) {
+                        PropertyExpression pe = (PropertyExpression) lhs;
                         String name = null;
                         if (lhs instanceof AttributeExpression) {
                             if (interceptAttribute)
                                 name = "checkedSetAttribute";
                         } else {
+                            Expression receiver = pe.getObjectExpression();
+                            if (receiver instanceof VariableExpression && ((VariableExpression) receiver).getName().equals("this")) {
+                                FieldNode field = method.getDeclaringClass().getField(pe.getPropertyAsString());
+                                if (field != null) { // could also verify that it is final, but not necessary
+                                    // cf. BinaryExpression.transformExpression; super.transform(exp) transforms the LHS to checkedGetProperty
+                                    return new BinaryExpression(lhs, be.getOperation(), transform(be.getRightExpression()));
+                                } // else this is a property which we need to check
+                            }
                             if (interceptProperty)
                                 name = "checkedSetProperty";
                         }
                         if (name==null) // not intercepting?
                             return super.transform(exp);
 
-                        PropertyExpression pe = (PropertyExpression) lhs;
                         return makeCheckedCall(name,
                                 transformObjectExpression(pe),
                                 pe.getProperty(),
