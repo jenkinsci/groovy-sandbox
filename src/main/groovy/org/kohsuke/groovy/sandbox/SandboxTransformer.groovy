@@ -208,9 +208,21 @@ class SandboxTransformer extends CompilationCustomizer {
                 // ClosureExpression.transformExpression doesn't visit the code inside
                 ClosureExpression ce = (ClosureExpression)exp;
                 withVarScope {
-                    for (Parameter p : ce.parameters) {
-                        declareVariable(p);
+
+                    // {-> }ce.parameters == null
+                    // {it + 1} ce.parameters != null ce.parameters.length == 0
+
+                    if(ce.parameters != null) {
+                        if(ce.parameters.length > 0) {
+                            for (Parameter p : ce.parameters) {
+                                declareVariable(p);
+                            }
+                        } else {
+                            //support implicit it argument available in all closures, except those with {-> ..} specified
+                            declareVariable(new Parameter(null, "it"));
+                        }
                     }
+
                     visitClosure(true) {
                         ce.code.visit(this)
                     }

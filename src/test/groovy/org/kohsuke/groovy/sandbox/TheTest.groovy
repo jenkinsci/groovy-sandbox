@@ -116,7 +116,7 @@ class TheTest extends TestCase {
                 1,
                 "new java.awt.Point(1,2).@x"
         )
-        
+
         // property set
         assertIntercept(
                 ['Script7.point',"Point.x=Integer"],
@@ -141,7 +141,7 @@ class TheTest extends TestCase {
         )
         assertEquals(3,binding.points[0].@x)
         assertEquals(3,binding.points[1].@x)
-        
+
         // array set & get
         assertIntercept(
                 "int[][Integer]=Integer/int[][Integer]",
@@ -722,6 +722,41 @@ Exception.message
         assertIntercept(
             "ArrayList.isCase(Integer)", false, "1 in [2]"
         );
+    }
+
+    void testClosureImplicitIt() {
+        assertIntercept(
+                [
+                        'Script1.c=Script1$_run_closure1',
+                        'Script1.c(Integer)',
+                        'Integer.plus(Integer)'
+                ], 2, '''
+                 c = { it + 1 }
+                 c(1)
+                 '''
+        );
+
+        assertIntercept(
+                [
+                        'Script2.c=Script2$_run_closure1',
+                        'Script2.c(Integer)',
+                        'Integer.plus(Integer)'
+                ], 2, '''
+                 c = {v -> v + 1 }
+                 c(1)
+                 '''
+        );
+
+        assertIntercept(
+                [
+                        'Script3.c=Script3$_run_closure1',
+                        'Script3.c()'
+                ], 2, '''
+                 c = {-> 2 }
+                 c()
+                 '''
+        );
+
     }
 
     /**
