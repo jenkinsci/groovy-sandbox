@@ -119,7 +119,7 @@ public class SandboxTransformer extends CompilationCustomizer {
             return;
         }
 
-        ClassCodeExpressionTransformer visitor = createVisitor(source);
+        ClassCodeExpressionTransformer visitor = createVisitor(source, classNode);
 
         for (ConstructorNode c : classNode.getDeclaredConstructors()) {
             visitor.visitMethod(c);
@@ -135,8 +135,13 @@ public class SandboxTransformer extends CompilationCustomizer {
         }
     }
 
+    @Deprecated
     public ClassCodeExpressionTransformer createVisitor(SourceUnit source) {
-        return new VisitorImpl(source);
+        return createVisitor(source, null);
+    }
+    
+    public ClassCodeExpressionTransformer createVisitor(SourceUnit source, ClassNode clazz) {
+        return new VisitorImpl(source, clazz);
     }
 
     class VisitorImpl extends ScopeTrackingClassCodeExpressionTransformer {
@@ -164,17 +169,20 @@ public class SandboxTransformer extends CompilationCustomizer {
         private boolean visitingClosureBody;
 
         /**
-         * Current method we are traversing.
+         * Current class we are traversing.
          */
-        private MethodNode method;
+        private ClassNode clazz;
 
-        VisitorImpl(SourceUnit sourceUnit) {
+        VisitorImpl(SourceUnit sourceUnit, ClassNode clazz) {
             this.sourceUnit = sourceUnit;
+            this.clazz = clazz;
         }
 
         @Override
         public void visitMethod(MethodNode node) {
-            this.method = node;
+            if (clazz == null) { // compatibility
+                clazz = node.getDeclaringClass();
+            }
             super.visitMethod(node);
         }
 
@@ -251,7 +259,10 @@ public class SandboxTransformer extends CompilationCustomizer {
                 Expression arg2 = transformArguments(call.getArguments());
 
                 if (call.getObjectExpression() instanceof VariableExpression && ((VariableExpression) call.getObjectExpression()).getName().equals("super")) {
-                    return makeCheckedCall("checkedSuperCall", new ClassExpression(method.getDeclaringClass()), objExp, arg1, arg2);
+                    if (clazz == null) {
+                        throw new IllegalStateException("owning class not defined");
+                    }
+                    return makeCheckedCall("checkedSuperCall", new ClassExpression(clazz), objExp, arg1, arg2);
                 } else {
                     return makeCheckedCall("checkedCall",
                             objExp,
@@ -366,18 +377,26 @@ public class SandboxTransformer extends CompilationCustomizer {
                         }
                     } // no else here
                     if (lhs instanceof PropertyExpression) {
+                        PropertyExpression pe = (PropertyExpression) lhs;
                         String name = null;
                         if (lhs instanceof AttributeExpression) {
                             if (interceptAttribute)
                                 name = "checkedSetAttribute";
                         } else {
+                            Expression receiver = pe.getObjectExpression();
+                            if (receiver instanceof VariableExpression && ((VariableExpression) receiver).getName().equals("this")) {
+                                FieldNode field = clazz != null ? clazz.getField(pe.getPropertyAsString()) : null;
+                                if (field != null) { // could also verify that it is final, but not necessary
+                                    // cf. BinaryExpression.transformExpression; super.transform(exp) transforms the LHS to checkedGetProperty
+                                    return new BinaryExpression(lhs, be.getOperation(), transform(be.getRightExpression()));
+                                } // else this is a property which we need to check
+                            }
                             if (interceptProperty)
                                 name = "checkedSetProperty";
                         }
                         if (name==null) // not intercepting?
                             return super.transform(exp);
 
-                        PropertyExpression pe = (PropertyExpression) lhs;
                         return makeCheckedCall(name,
                                 transformObjectExpression(pe),
                                 pe.getProperty(),
