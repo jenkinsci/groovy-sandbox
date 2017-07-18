@@ -4,7 +4,8 @@
   <parent>
     <groupId>org.kohsuke</groupId>
     <artifactId>pom</artifactId>
-    <version>14</version>
+    <version>17</version>
+    <relativePath />
   </parent>
 
   <artifactId>groovy-sandbox</artifactId>
@@ -20,14 +21,20 @@
   <build>
     <plugins>
       <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <source>1.7</source>
+          <target>1.7</target>
+        </configuration>
+      </plugin>
+      <plugin>
         <groupId>org.codehaus.gmaven</groupId>
         <artifactId>gmaven-plugin</artifactId>
-        <version>1.5</version>
+        <version>1.5-jenkins-3</version>
         <executions>
           <execution>
             <goals>
-              <goal>generateStubs</goal>
-              <goal>compile</goal>
               <goal>generateTestStubs</goal>
               <goal>testCompile</goal>
             </goals>
@@ -40,13 +47,14 @@
           <dependency>
             <groupId>org.codehaus.gmaven.runtime</groupId>
             <artifactId>gmaven-runtime-1.8</artifactId>
-            <version>1.5</version>
+            <version>1.5-jenkins-3</version>
           </dependency>
         </dependencies>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
+        <version>3.0.2</version>
         <executions>
           <execution>
             <goals>
@@ -63,7 +71,7 @@
     <dependency>
       <groupId>org.codehaus.groovy</groupId>
       <artifactId>groovy</artifactId>
-      <version>1.8.5</version>
+      <version>1.8.9</version>
     </dependency>
     <dependency>
       <groupId>junit</groupId>

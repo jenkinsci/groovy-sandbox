@@ -14,13 +14,17 @@ import java.util.Set;
  *
  * @author Kohsuke Kawaguchi
  */
-final class StackVariableSet {
+final class StackVariableSet implements AutoCloseable {
+
+    final ScopeTrackingClassCodeExpressionTransformer owner;
     final StackVariableSet parent;
 
-    private final Set<String> names = new HashSet<String>();
+    private final Set<String> names = new HashSet<>();
 
-    StackVariableSet(StackVariableSet parent) {
-        this.parent = parent;
+    StackVariableSet(ScopeTrackingClassCodeExpressionTransformer owner) {
+        this.owner = owner;
+        this.parent = owner.varScope;
+        owner.varScope = this;
     }
 
     void declare(String name) {
@@ -35,5 +39,10 @@ final class StackVariableSet {
             if (s.names.contains(name))
                 return true;
         return false;
+    }
+
+    @Override
+    public void close() {
+        owner.varScope = parent;
     }
 }
