@@ -381,7 +381,7 @@ public class Checker {
 
     public static Object checkedGetArray(Object _receiver, Object _index) throws Throwable {
         return new SingleArgInvokerChain(_receiver) {
-            public Object call(Object receiver, String _, Object index) throws Throwable {
+            public Object call(Object receiver, String method, Object index) throws Throwable {
                 if (chain.hasNext())
                     return chain.next().onGetArray(this,receiver,index);
                 else
@@ -406,7 +406,7 @@ public class Checker {
                     checkedBinaryOp(v, Ops.compoundAssignmentToBinaryOperator(op), _value));
         } else {
             return new TwoArgInvokerChain(_receiver) {
-                public Object call(Object receiver, String _, Object index, Object value) throws Throwable {
+                public Object call(Object receiver, String method, Object index, Object value) throws Throwable {
                     if (chain.hasNext())
                         return chain.next().onSetArray(this,receiver,index,value);
                     else {
@@ -463,7 +463,7 @@ public class Checker {
     }
 
     /**
-     * Intercepts the binary expression of the form "lhs op rhs" like "lhs+rhs", "lhs>>rhs", etc.
+     * Intercepts the binary expression of the form {@code lhs op rhs} like {@code lhs+rhs}, {@code lhs>>rhs}, etc.
      *
      * In Groovy, binary operators are method calls.
      *
