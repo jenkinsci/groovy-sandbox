@@ -757,4 +757,24 @@ Exception.message
             new Zot().toString();
         ''')
     }
+
+    void testPostfixOpInClosure() {
+        assertIntercept(['ArrayList.each(Script1$_run_closure1)',
+                         'Integer.next()',
+                         'ArrayList[Integer]',
+                         'Integer.next()',
+                         'ArrayList[Integer]',
+                         'Integer.next()',
+                         'ArrayList[Integer]',
+                         'Integer.next()',
+                         'ArrayList[Integer]',
+                         'Integer.next()',
+                         'ArrayList[Integer]'],
+        10,
+        '''def cnt = 0
+[0, 1, 2, 3, 4].each {
+  cnt++
+}
+return cnt''')
+    }
 }

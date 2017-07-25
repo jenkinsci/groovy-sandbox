@@ -250,7 +250,7 @@ public class SandboxTransformer extends CompilationCustomizer {
                 MethodCallExpression call = (MethodCallExpression) exp;
 
                 Expression objExp;
-                if (call.isImplicitThis() && visitingClosureBody)
+                if (call.isImplicitThis() && visitingClosureBody && !isLocalVariableExpression(call.getObjectExpression()))
                     objExp = CLOSURE_THIS;
                 else
                     objExp = transform(call.getObjectExpression());
@@ -565,11 +565,19 @@ public class SandboxTransformer extends CompilationCustomizer {
          * See {@link #visitingClosureBody} for the details of what this method is about.
          */
         private Expression transformObjectExpression(PropertyExpression exp) {
-            if (exp.isImplicitThis() && visitingClosureBody) {
+            if (exp.isImplicitThis() && visitingClosureBody && !isLocalVariableExpression(exp.getObjectExpression())) {
                 return CLOSURE_THIS;
             } else {
                 return transform(exp.getObjectExpression());
             }
+        }
+
+        private boolean isLocalVariableExpression(Expression exp) {
+            if (exp != null && exp instanceof VariableExpression) {
+                return isLocalVariable(((VariableExpression) exp).getName());
+            }
+
+            return false;
         }
 
         ConstantExpression boolExp(boolean v) {
