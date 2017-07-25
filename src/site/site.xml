@@ -13,8 +13,8 @@
   <body>
     <menu name="${project.name}">
       <item name="Introduction" href="/index.html"/>
-      <item name="Source code"  href="https://github.com/kohsuke/${project.artifactId}"/>
-      <item name="Bugs"         href="https://github.com/kohsuke/${project.artifactId}/issues"/>
+      <item name="Source code"  href="https://github.com/jenkinsci/${project.artifactId}"/>
+      <item name="Bugs"         href="https://github.com/jenkinsci/${project.artifactId}/issues"/>
     </menu>
 
     <menu name="References">

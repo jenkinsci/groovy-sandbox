@@ -15,7 +15,7 @@ Compile-time transformer to run Groovy code in a restrictive sandbox. Executes u
 ```
 
 #### Usage
-A good example can be found [here](https://github.com/kohsuke/groovy-sandbox/tree/master/src/test/groovy/org/kohsuke/groovy/sandbox/robot).
+A good example can be found [here](https://github.com/jenkinsci/groovy-sandbox/tree/master/src/test/groovy/org/kohsuke/groovy/sandbox/robot).
 This is a simple test that always expects a `SecurityException`:
 
 ```groovy

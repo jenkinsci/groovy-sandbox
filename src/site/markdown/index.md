@@ -33,7 +33,7 @@ and registers it to the thread before you start executing the script:
         sandbox.unregister()
     }
 
-See the [robot example](https://github.com/kohsuke/groovy-sandbox/tree/master/src/test/groovy/org/kohsuke/groovy/sandbox/robot)
+See the [robot example](https://github.com/jenkinsci/groovy-sandbox/tree/master/src/test/groovy/org/kohsuke/groovy/sandbox/robot)
 for a complete example.
 
 # Considerations
