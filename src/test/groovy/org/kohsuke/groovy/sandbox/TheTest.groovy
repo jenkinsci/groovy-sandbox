@@ -223,7 +223,7 @@ class TheTest extends TestCase {
 
     void testStaticFieldInitialization() {
         assertIntercept(
-                "Integer.class/Class:forName(String)/new foo()",
+                "new foo()/Integer.class/Class:forName(String)",
                 null,
                 "class foo {\n" +
                         "static obj = 5.class.forName('java.lang.String')\n" +
@@ -352,7 +352,7 @@ x.plusOne(5)
             [
                 "Script1\$_run_closure1.call()",
                 'Script1$_run_closure1.delegate=String',
-                'Script1$_run_closure1_closure2.call()',
+                'Script1$_run_closure1$_closure2.call()',
                 'String.length()'
             ],
             3, """
@@ -433,7 +433,7 @@ x.plusOne(5)
                 'Script1$_run_closure1.call()',
                 'new SomeBean(Integer,Integer)',
                 'Script1$_run_closure1.delegate=SomeBean',
-                'Script1$_run_closure1_closure2.call()',
+                'Script1$_run_closure1$_closure2.call()',
                 'Script1.x',
                 'SomeBean.x',
                 'Script1.y',
