@@ -1,9 +1,17 @@
 package org.kohsuke.groovy.sandbox;
 
+import groovy.lang.Script;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
+import org.codehaus.groovy.GroovyBugError;
 import org.codehaus.groovy.ast.ASTNode;
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer;
 import org.codehaus.groovy.ast.ClassNode;
@@ -13,6 +21,7 @@ import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.Parameter;
 import org.codehaus.groovy.ast.expr.ArgumentListExpression;
 import org.codehaus.groovy.ast.expr.AttributeExpression;
+import org.codehaus.groovy.ast.expr.CastExpression;
 import org.codehaus.groovy.ast.expr.ClassExpression;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
 import org.codehaus.groovy.ast.expr.ConstantExpression;
@@ -42,7 +51,10 @@ import org.kohsuke.groovy.sandbox.impl.Ops;
 import org.kohsuke.groovy.sandbox.impl.SandboxedMethodClosure;
 
 import static org.codehaus.groovy.ast.expr.ArgumentListExpression.EMPTY_ARGUMENTS;
+import org.codehaus.groovy.ast.stmt.BlockStatement;
+import org.codehaus.groovy.ast.stmt.ExpressionStatement;
 import org.codehaus.groovy.ast.stmt.Statement;
+import org.codehaus.groovy.runtime.typehandling.DefaultTypeTransformation;
 import static org.codehaus.groovy.syntax.Types.*;
 
 /**
@@ -114,16 +126,14 @@ public class SandboxTransformer extends CompilationCustomizer {
     }
 
     @Override
-    public void call(SourceUnit source, GeneratorContext context, ClassNode classNode) {
+    public void call(final SourceUnit source, GeneratorContext context, ClassNode classNode) {
         if (classNode == null) { // TODO is this even possible? CpsTransformer implies it is not.
             return;
         }
 
         ClassCodeExpressionTransformer visitor = createVisitor(source, classNode);
 
-        for (ConstructorNode c : classNode.getDeclaredConstructors()) {
-            visitor.visitMethod(c);
-        }
+        processConstructors(visitor, classNode);
         for (MethodNode m : classNode.getMethods()) {
             visitor.visitMethod(m);
         }
@@ -132,6 +142,90 @@ public class SandboxTransformer extends CompilationCustomizer {
         }
         for (FieldNode f : classNode.getFields()) {
             visitor.visitField(f);
+        }
+    }
+
+    /** Do not care about {@code super} calls for classes extending these types. */
+    private static final Set<String> TRIVIAL_CONSTRUCTORS = new HashSet<>(Arrays.asList(
+        Object.class.getName(),
+        Script.class.getName(),
+        "com.cloudbees.groovy.cps.SerializableScript",
+        "org.jenkinsci.plugins.workflow.cps.CpsScript"));
+    /**
+     * Apply SECURITY-582 fix to constructors.
+     */
+    public void processConstructors(final ClassCodeExpressionTransformer visitor, ClassNode classNode) {
+        ClassNode superClass = classNode.getSuperClass();
+        List<ConstructorNode> declaredConstructors = classNode.getDeclaredConstructors();
+        if (TRIVIAL_CONSTRUCTORS.contains(superClass.getName())) {
+            for (ConstructorNode c : declaredConstructors) {
+                visitor.visitMethod(c);
+            }
+        } else {
+            if (declaredConstructors.isEmpty()) {
+                ConstructorNode syntheticConstructor = new ConstructorNode(Modifier.PUBLIC, new BlockStatement());
+                declaredConstructors = Collections.singletonList(syntheticConstructor);
+                classNode.addConstructor(syntheticConstructor);
+            } else {
+                declaredConstructors = new ArrayList<>(declaredConstructors);
+            }
+            for (ConstructorNode c : declaredConstructors) {
+                Statement code = c.getCode();
+                List<Statement> body;
+                if (code instanceof BlockStatement) {
+                    body = ((BlockStatement) code).getStatements();
+                } else {
+                    body = Collections.singletonList(code);
+                }
+                TupleExpression superArgs = new TupleExpression();
+                if (!body.isEmpty() && body.get(0) instanceof ExpressionStatement && ((ExpressionStatement) body.get(0)).getExpression() instanceof ConstructorCallExpression) {
+                    ConstructorCallExpression cce = (ConstructorCallExpression) ((ExpressionStatement) body.get(0)).getExpression();
+                    if (cce.isThisCall()) { // these are fine as is
+                        visitor.visitMethod(c);
+                        continue;
+                    } else if (cce.isSuperCall()) {
+                        body = body.subList(1, body.size());
+                        superArgs = ((TupleExpression) cce.getArguments());
+                    }
+                }
+                List<Expression> thisArgs = new ArrayList<>();
+                final TupleExpression _superArgs = superArgs;
+                final AtomicReference<Expression> superArgsTransformed = new AtomicReference<>();
+                ((ScopeTrackingClassCodeExpressionTransformer) visitor).withMethod(c, new Runnable() {
+                    @Override
+                    public void run() {
+                        superArgsTransformed.set(((VisitorImpl) visitor).transformArguments(_superArgs));
+                    }
+                });
+                thisArgs.add(((VisitorImpl) visitor).makeCheckedCall("checkedSuperConstructor", new ClassExpression(superClass), superArgsTransformed.get()));
+                Parameter[] origParams = c.getParameters();
+                for (Parameter p : origParams) {
+                    thisArgs.add(new VariableExpression(p));
+                }
+                c.setCode(new BlockStatement(new Statement[] {new ExpressionStatement(new ConstructorCallExpression(ClassNode.THIS, new TupleExpression(thisArgs)))}, c.getVariableScope()));
+                Parameter[] params = new Parameter[origParams.length + 1];
+                params[0] = new Parameter(new ClassNode(Checker.SuperConstructorWrapper.class), "$scw");
+                System.arraycopy(origParams, 0, params, 1, origParams.length);
+                List<Expression> scwArgs = new ArrayList<>();
+                int x = 0;
+                for (Expression superArg : superArgs) {
+                    scwArgs.add(/*new CastExpression(superArg.getType(), */new MethodCallExpression(new VariableExpression("$scw"), "arg", new ConstantExpression(x++))/*)*/);
+                }
+                List<Statement> body2 = new ArrayList<>();
+                body2.add(0, new ExpressionStatement(new ConstructorCallExpression(ClassNode.SUPER, new ArgumentListExpression(scwArgs))));
+                for (final Statement s : body) {
+                    ((ScopeTrackingClassCodeExpressionTransformer) visitor).withMethod(c, new Runnable() {
+                        @Override
+                        public void run() {
+                            s.visit(visitor);
+                        }
+                    });
+                    body2.add(s);
+                }
+                ConstructorNode c2 = new ConstructorNode(Modifier.PRIVATE, params, c.getExceptions(), new BlockStatement(body2, c.getVariableScope()));
+                // perhaps more misleading than helpful: c2.setSourcePosition(c);
+                classNode.addConstructor(c2);
+            }
         }
     }
 
@@ -307,6 +401,7 @@ public class SandboxTransformer extends CompilationCustomizer {
                 } else {
                     // we can't really intercept constructor calling super(...) or this(...),
                     // since it has to be the first method call in a constructor.
+                    // but see SECURITY-582 fix above
                 }
             }
 
@@ -489,6 +584,17 @@ public class SandboxTransformer extends CompilationCustomizer {
                 return prefixPostfixExp(exp, pe.getExpression(), pe.getOperation(), "Prefix");
             }
 
+            if (exp instanceof CastExpression) {
+                CastExpression ce = (CastExpression) exp;
+                return makeCheckedCall("checkedCast",
+                        classExp(exp.getType()),
+                        transform(ce.getExpression()),
+                        boolExp(ce.isIgnoringAutoboxing()),
+                        boolExp(ce.isCoerce()),
+                        boolExp(ce.isStrict())
+                );
+            }
+
             return super.transform(exp);
         }
 
@@ -589,9 +695,50 @@ public class SandboxTransformer extends CompilationCustomizer {
         }
 
         @Override
+        public void visitExpressionStatement(ExpressionStatement es) {
+            Expression exp = es.getExpression();
+            if (exp instanceof DeclarationExpression) {
+                DeclarationExpression de = (DeclarationExpression) exp;
+                Expression leftExpression = de.getLeftExpression();
+                if (leftExpression instanceof VariableExpression) {
+                    if (mightBePositionalArgumentConstructor((VariableExpression) leftExpression)) {
+                        CastExpression ce = new CastExpression(leftExpression.getType(), de.getRightExpression());
+                        ce.setCoerce(true);
+                        es.setExpression(transform(new DeclarationExpression(leftExpression, de.getOperation(), transform(ce))));
+                        return;
+                    }
+                } else {
+                    throw new UnsupportedOperationException("not supporting tuples yet"); // cf. "Unexpected LHS of an assignment" above
+                }
+            }
+            super.visitExpressionStatement(es);
+        }
+
+        @Override
         protected SourceUnit getSourceUnit() {
             return sourceUnit;
         }
+    }
+
+    /**
+     * Checks if a {@link DeclarationExpression#getVariableExpression} might induce {@link DefaultTypeTransformation#castToType} to call a constructor.
+     * If so, {@link Checker#checkedCast} should be run.
+     * Will be false for example if the declared type is an array, {@code abstract}, or unspecified (just {@code def}).
+     * Not yet supporting {@link DeclarationExpression#getTupleExpression} on LHS;
+     * and currently ignoring {@link DeclarationExpression#getRightExpression} though some might not possibly be arrays, {@link Collection}s, or {@link Map}s.
+     */
+    public static boolean mightBePositionalArgumentConstructor(VariableExpression ve) {
+        ClassNode type = ve.getType();
+        if (type.isArray()) {
+            return false; // do not care about componentType
+        }
+        Class clazz;
+        try {
+            clazz = type.getTypeClass();
+        } catch (GroovyBugError x) {
+            return false; // "ClassNode#getTypeClass for … is called before the type class is set" when assigning to a type defined in Groovy source
+        }
+        return clazz != null && clazz != Object.class && !Modifier.isAbstract(clazz.getModifiers());
     }
 
     static final Token ASSIGNMENT_OP = new Token(Types.ASSIGN, "=", -1, -1);

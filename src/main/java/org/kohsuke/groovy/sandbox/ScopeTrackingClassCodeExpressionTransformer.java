@@ -8,6 +8,7 @@ import org.codehaus.groovy.ast.Variable;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
 import org.codehaus.groovy.ast.expr.DeclarationExpression;
 import org.codehaus.groovy.ast.expr.Expression;
+import org.codehaus.groovy.ast.expr.TupleExpression;
 import org.codehaus.groovy.ast.expr.VariableExpression;
 import org.codehaus.groovy.ast.stmt.BlockStatement;
 import org.codehaus.groovy.ast.stmt.CatchStatement;
@@ -43,6 +44,16 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
                 declareVariable(p);
             }
             super.visitMethod(node);
+        }
+    }
+
+    void withMethod(MethodNode node, Runnable r) {
+        varScope = null;
+        try (StackVariableSet scope = new StackVariableSet(this)) {
+            for (Parameter p : node.getParameters()) {
+                declareVariable(p);
+            }
+            r.run();
         }
     }
 
@@ -154,15 +165,12 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
         Expression leftExpression = exp.getLeftExpression();
         if (leftExpression instanceof VariableExpression) {
             declareVariable((VariableExpression) leftExpression);
-        }
-        /* TODO did this mean to check leftExpression?
-        if (exp instanceof TupleExpression) {
-            TupleExpression te = (TupleExpression) exp;
+        } else if (leftExpression instanceof TupleExpression) {
+            TupleExpression te = (TupleExpression) leftExpression;
             for (Expression e : te.getExpressions()) {
                 declareVariable((VariableExpression)e);
             }
         }
-        */
     }
 
     void declareVariable(Variable exp) {
