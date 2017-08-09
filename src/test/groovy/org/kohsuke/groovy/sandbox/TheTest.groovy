@@ -774,7 +774,7 @@ Exception.message
                          'ArrayList[Integer]',
                          'Integer.next()',
                          'ArrayList[Integer]'],
-        10,
+        5,
         '''def cnt = 0
 [0, 1, 2, 3, 4].each {
   cnt++
