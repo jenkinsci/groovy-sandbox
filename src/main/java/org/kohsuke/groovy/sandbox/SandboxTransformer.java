@@ -704,7 +704,7 @@ public class SandboxTransformer extends CompilationCustomizer {
                     if (mightBePositionalArgumentConstructor((VariableExpression) leftExpression)) {
                         CastExpression ce = new CastExpression(leftExpression.getType(), de.getRightExpression());
                         ce.setCoerce(true);
-                        es.setExpression(transform(new DeclarationExpression(leftExpression, de.getOperation(), transform(ce))));
+                        es.setExpression(transform(new DeclarationExpression(leftExpression, de.getOperation(), ce)));
                         return;
                     }
                 } else {

@@ -316,7 +316,7 @@ x.plusOne(5)
      * See issue #9
      */
     void testAnd() {
-        assertIntercept('Checker:checkedCast(Class,null,Boolean,Boolean,Boolean)', false, """
+        assertIntercept('', false, """
             String s = null
             if (s != null && s.length > 0)
               throw new Exception();
@@ -550,6 +550,18 @@ Exception.message
             def x = 'foo';
             x =~ /bla/
             x ==~ /bla/
+        """)
+    }
+
+    void testMatcherTypeAssignment() {
+        assertIntercept(
+            [
+                'ScriptBytecodeAdapter:findRegex(String,String)',
+                'Matcher.matches()'
+            ],false,"""
+            def x = 'foo';
+            java.util.regex.Matcher m = x =~ /bla/
+            return m.matches()
         """)
     }
 
