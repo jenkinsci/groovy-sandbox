@@ -2,7 +2,8 @@ package org.kohsuke.groovy.sandbox
 
 import org.codehaus.groovy.control.customizers.ImportCustomizer
 import org.codehaus.groovy.runtime.NullObject
-
+import org.codehaus.groovy.runtime.ProxyGeneratorAdapter
+import org.jvnet.hudson.test.Issue
 import java.awt.Point
 import junit.framework.TestCase
 import org.codehaus.groovy.control.CompilerConfiguration
@@ -315,7 +316,7 @@ x.plusOne(5)
      * See issue #9
      */
     void testAnd() {
-        assertIntercept("", false, """
+        assertIntercept('Checker:checkedCast(Class,null,Boolean,Boolean,Boolean)', false, """
             String s = null
             if (s != null && s.length > 0)
               throw new Exception();
@@ -736,9 +737,12 @@ Exception.message
     /**
      * Intercepts super.toString()
      */
+    @Issue("JENKINS-42563")
     void testSuperCall() {
         assertIntercept([
             "new Zot()",
+            "new Bar()",
+            "new Foo()",
             "Zot.toString()",
             "Zot.super(Bar).toString()",
             "String.plus(String)"
@@ -776,5 +780,19 @@ Exception.message
   cnt++
 }
 return cnt''')
+    }
+
+    @Issue("SECURITY-566")
+    void testTypeCoercion() {
+        ProxyGeneratorAdapter.pxyCounter.set(0); // make sure *_groovyProxy names are predictable
+        assertIntercept([
+            'Locale:getDefault()',
+            'Class2_groovyProxy.getDefault()'
+        ], Locale.getDefault(), '''
+            interface I {
+                Locale getDefault()
+            }
+            (Locale as I).getDefault()
+        ''')
     }
 }

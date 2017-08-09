@@ -50,6 +50,13 @@ public abstract class GroovyInterceptor {
     }
 
     /**
+     * Intercepts a {@code super(…)} call from a constructor.
+     */
+    public void onSuperConstructor(Invoker invoker, Class receiver, Object... args) throws Throwable {
+        onNewInstance(invoker, receiver, args);
+    }
+
+    /**
      * Intercepts a property access, like "z=foo.bar"
      * 
      * @param receiver

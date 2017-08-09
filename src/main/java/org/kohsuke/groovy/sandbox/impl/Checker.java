@@ -7,6 +7,9 @@ import groovy.lang.MetaClassImpl;
 import groovy.lang.MetaMethod;
 import groovy.lang.MissingMethodException;
 import groovy.lang.MissingPropertyException;
+import java.lang.reflect.Array;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import org.codehaus.groovy.classgen.asm.BinaryExpressionHelper;
 import org.codehaus.groovy.runtime.InvokerHelper;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
@@ -15,12 +18,14 @@ import org.codehaus.groovy.runtime.callsite.CallSiteArray;
 import org.codehaus.groovy.syntax.Types;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 import static org.codehaus.groovy.runtime.InvokerHelper.getMetaClass;
 import static org.codehaus.groovy.runtime.MetaClassHelper.convertToTypeArray;
+import org.kohsuke.groovy.sandbox.SandboxTransformer;
 import static org.kohsuke.groovy.sandbox.impl.ClosureSupport.BUILTIN_PROPERTIES;
 
 /**
@@ -208,6 +213,28 @@ public class Checker {
                 }
             }
         }.call(s,_method,fixNull(_args));
+    }
+
+    public static class SuperConstructorWrapper {
+        private final Object[] args;
+        SuperConstructorWrapper(Object[] args) {
+            this.args = args;
+        }
+        public Object arg(int idx) {
+            return args[idx];
+        }
+    }
+
+    public static SuperConstructorWrapper checkedSuperConstructor(final Class<?> superClass, Object[] args) throws Throwable {
+        new VarArgInvokerChain(superClass) {
+            public Object call(Object receiver, String method, Object... args) throws Throwable {
+                if (chain.hasNext()) {
+                    chain.next().onSuperConstructor(this, superClass, args);
+                }
+                return null;
+            }
+        }.call(superClass, null, fixNull(args));
+        return new SuperConstructorWrapper(args);
     }
 
     public static Object checkedGetProperty(final Object _receiver, boolean safe, boolean spread, Object _property) throws Throwable {
@@ -496,6 +523,70 @@ public class Checker {
                 }
             }
         }.call(lhs, null, rhs);
+    }
+
+    /**
+     * Runs {@link ScriptBytecodeAdapter#asType} but only after giving interceptors the chance to reject any possible interface methods as applied to the receiver.
+     * For example, might run {@code receiver.method1(null, false)} and {@code receiver.method2(0, null)} if methods with matching signatures were defined in the interfaces.
+     * @see SandboxTransformer#mightBePositionalArgumentConstructor
+     */
+    public static Object checkedCast(Class<?> clazz, Object exp, boolean ignoreAutoboxing, boolean coerce, boolean strict) throws Throwable {
+        if (coerce && exp != null &&
+                // Ignore some things handled by DefaultGroovyMethods.asType(Collection, Class), e.g., `[1, 2, 3] as Set` (interface → first clause) or `[1, 2, 3] as HashSet` (collection assigned to concrete class → second clause):
+                !(Collection.class.isAssignableFrom(clazz) && clazz.getPackage().getName().equals("java.util"))) {
+            if (clazz.isInterface()) {
+                for (Method m : clazz.getMethods()) {
+                    Object[] args = new Object[m.getParameterTypes().length];
+                    for (int i = 0; i < args.length; i++) {
+                        args[i] = getDefaultValue(m.getParameterTypes()[i]);
+                    }
+                    // Yes we are deliberately ignoring the return value here:
+                    new VarArgInvokerChain(exp) {
+                        public Object call(Object receiver, String method, Object... args) throws Throwable {
+                            if (chain.hasNext()) {
+                                if (receiver instanceof Class) {
+                                    return chain.next().onStaticCall(this, (Class) receiver, method, args);
+                                } else {
+                                    return chain.next().onMethodCall(this, receiver, method, args);
+                                }
+                            } else {
+                                return null;
+                            }
+                        }
+                    }.call(exp, m.getName(), args);
+                }
+            } else if (!clazz.isArray() && clazz != Object.class && !Modifier.isAbstract(clazz.getModifiers()) && (exp instanceof Collection || exp.getClass().isArray() || exp instanceof Map)) {
+                // cf. mightBePositionalArgumentConstructor
+                Object[] args = null;
+                if (exp instanceof Collection) {
+                    args = ((Collection) exp).toArray();
+                } else if (exp instanceof Map) {
+                    args = new Object[] {exp};
+                } else { // arrays
+                    // TODO tricky to determine which constructor will actually be called; array might be expanded, or might not
+                    throw new UnsupportedOperationException("casting arrays to types via constructor is not yet supported");
+                }
+                if (args != null) {
+                    // Again we are deliberately ignoring the return value:
+                    new VarArgInvokerChain(clazz) {
+                        public Object call(Object receiver, String method, Object... args) throws Throwable {
+                            if (chain.hasNext()) {
+                                return chain.next().onNewInstance(this, (Class) receiver, args);
+                            } else {
+                                return null;
+                            }
+                        }
+                    }.call(clazz, null, args);
+                }
+            }
+        }
+        // TODO what does ignoreAutoboxing do?
+        return strict ? clazz.cast(exp) : coerce ? ScriptBytecodeAdapter.asType(exp, clazz) : ScriptBytecodeAdapter.castToType(exp, clazz);
+    }
+    // https://stackoverflow.com/a/38243203/12916
+    @SuppressWarnings("unchecked")
+    private static <T> T getDefaultValue(Class<T> clazz) {
+        return (T) Array.get(Array.newInstance(clazz, 1), 0);
     }
 
     /**
