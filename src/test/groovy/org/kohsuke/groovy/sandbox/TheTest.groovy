@@ -553,6 +553,7 @@ Exception.message
         """)
     }
 
+    @Issue("JENKINS-46088")
     void testMatcherTypeAssignment() {
         assertIntercept(
             [
