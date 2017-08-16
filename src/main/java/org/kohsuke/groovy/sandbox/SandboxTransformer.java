@@ -27,6 +27,7 @@ import org.codehaus.groovy.ast.expr.ClassExpression;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
 import org.codehaus.groovy.ast.expr.ConstantExpression;
 import org.codehaus.groovy.ast.expr.DeclarationExpression;
+import org.codehaus.groovy.ast.expr.EmptyExpression;
 import org.codehaus.groovy.ast.expr.Expression;
 import org.codehaus.groovy.ast.expr.ListExpression;
 import org.codehaus.groovy.ast.expr.MethodCallExpression;
@@ -716,7 +717,9 @@ public class SandboxTransformer extends CompilationCustomizer {
                 DeclarationExpression de = (DeclarationExpression) exp;
                 Expression leftExpression = de.getLeftExpression();
                 if (leftExpression instanceof VariableExpression) {
-                    if (mightBePositionalArgumentConstructor((VariableExpression) leftExpression)) {
+                    // Only cast and transform if the RHS is *not* an EmptyExpression, i.e., "String foo;" would not be cast/transformed.
+                    if (!(de.getRightExpression() instanceof EmptyExpression) &&
+                            mightBePositionalArgumentConstructor((VariableExpression) leftExpression)) {
                         CastExpression ce = new CastExpression(leftExpression.getType(), de.getRightExpression());
                         ce.setCoerce(true);
                         es.setExpression(transform(new DeclarationExpression(leftExpression, de.getOperation(), ce)));
