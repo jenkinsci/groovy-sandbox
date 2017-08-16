@@ -840,4 +840,15 @@ return cnt''')
                  '''
         )
     }
+
+    @Issue("JENKINS-46191")
+    void testEmptyDeclaration() {
+        assertIntercept([""],
+        "abc",
+        '''
+String a
+a = "abc"
+return a
+''')
+    }
 }
