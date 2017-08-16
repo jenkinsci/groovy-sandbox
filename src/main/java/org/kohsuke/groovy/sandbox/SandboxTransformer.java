@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.codehaus.groovy.GroovyBugError;
 import org.codehaus.groovy.ast.ASTNode;
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer;
+import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.ConstructorNode;
 import org.codehaus.groovy.ast.FieldNode;
@@ -322,8 +323,14 @@ public class SandboxTransformer extends CompilationCustomizer {
                 try (StackVariableSet scope = new StackVariableSet(this)) {
                     Parameter[] parameters = ce.getParameters();
                     if (parameters != null) {
-                        for (Parameter p : parameters) {
-                            declareVariable(p);
+                        // Explicitly defined parameters, i.e., ".findAll { i -> i == 'bar' }"
+                        if (parameters.length > 0) {
+                            for (Parameter p : parameters) {
+                                declareVariable(p);
+                            }
+                        } else {
+                            // Implicit parameter - i.e., ".findAll { it == 'bar' }"
+                            declareVariable(new Parameter(ClassHelper.DYNAMIC_TYPE, "it"));
                         }
                     }
                     boolean old = visitingClosureBody;
@@ -712,7 +719,7 @@ public class SandboxTransformer extends CompilationCustomizer {
                     if (mightBePositionalArgumentConstructor((VariableExpression) leftExpression)) {
                         CastExpression ce = new CastExpression(leftExpression.getType(), de.getRightExpression());
                         ce.setCoerce(true);
-                        es.setExpression(transform(new DeclarationExpression(leftExpression, de.getOperation(), transform(ce))));
+                        es.setExpression(transform(new DeclarationExpression(leftExpression, de.getOperation(), ce)));
                         return;
                     }
                 } else {

@@ -316,7 +316,7 @@ x.plusOne(5)
      * See issue #9
      */
     void testAnd() {
-        assertIntercept('Checker:checkedCast(Class,null,Boolean,Boolean,Boolean)', false, """
+        assertIntercept('', false, """
             String s = null
             if (s != null && s.length > 0)
               throw new Exception();
@@ -550,6 +550,19 @@ Exception.message
             def x = 'foo';
             x =~ /bla/
             x ==~ /bla/
+        """)
+    }
+
+    @Issue("JENKINS-46088")
+    void testMatcherTypeAssignment() {
+        assertIntercept(
+            [
+                'ScriptBytecodeAdapter:findRegex(String,String)',
+                'Matcher.matches()'
+            ],false,"""
+            def x = 'foo';
+            java.util.regex.Matcher m = x =~ /bla/
+            return m.matches()
         """)
     }
 
@@ -794,5 +807,37 @@ return cnt''')
             }
             (Locale as I).getDefault()
         ''')
+    }
+
+    @Issue("JENKINS-33468")
+    void testClosureImplicitIt() {
+        assertIntercept([
+            'Script1.c=Script1$_run_closure1',
+            'Script1.c(Integer)',
+            'Integer.plus(Integer)'
+        ], 2, '''
+                 c = { it + 1 }
+                 c(1)
+                 '''
+        )
+
+        assertIntercept([
+            'Script2.c=Script2$_run_closure1',
+            'Script2.c(Integer)',
+            'Integer.plus(Integer)'
+        ], 2, '''
+                 c = {v -> v + 1 }
+                 c(1)
+                 '''
+        )
+
+        assertIntercept([
+            'Script3.c=Script3$_run_closure1',
+            'Script3.c()'
+        ], 2, '''
+                 c = {-> 2 }
+                 c()
+                 '''
+        )
     }
 }
