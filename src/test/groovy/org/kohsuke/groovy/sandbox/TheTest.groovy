@@ -775,6 +775,26 @@ Exception.message
         ''')
     }
 
+    void testPostfixOpInClosure() {
+        assertIntercept(['ArrayList.each(Script1$_run_closure1)',
+                         'Integer.next()',
+                         'ArrayList[Integer]',
+                         'Integer.next()',
+                         'ArrayList[Integer]',
+                         'Integer.next()',
+                         'ArrayList[Integer]',
+                         'Integer.next()',
+                         'ArrayList[Integer]',
+                         'Integer.next()',
+                         'ArrayList[Integer]'],
+        5,
+        '''def cnt = 0
+[0, 1, 2, 3, 4].each {
+  cnt++
+}
+return cnt''')
+    }
+
     @Issue("SECURITY-566")
     void testTypeCoercion() {
         ProxyGeneratorAdapter.pxyCounter.set(0); // make sure *_groovyProxy names are predictable
