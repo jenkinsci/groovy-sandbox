@@ -7,6 +7,8 @@ import groovy.lang.MetaClassImpl;
 import groovy.lang.MetaMethod;
 import groovy.lang.MissingMethodException;
 import groovy.lang.MissingPropertyException;
+
+import java.io.File;
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -578,6 +580,18 @@ public class Checker {
                         }
                     }.call(clazz, null, args);
                 }
+            } else if (clazz == File.class && exp instanceof CharSequence) {
+                Object[] args = new Object[]{exp.toString()};
+                // Again we are deliberately ignoring the return value:
+                new VarArgInvokerChain(clazz) {
+                    public Object call(Object receiver, String method, Object... args) throws Throwable {
+                        if (chain.hasNext()) {
+                            return chain.next().onNewInstance(this, (Class) receiver, args);
+                        } else {
+                            return null;
+                        }
+                    }
+                }.call(clazz, null, args);
             }
         }
         // TODO what does ignoreAutoboxing do?

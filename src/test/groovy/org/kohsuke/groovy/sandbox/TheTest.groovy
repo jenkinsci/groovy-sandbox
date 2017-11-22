@@ -851,4 +851,22 @@ a = "abc"
 return a
 ''')
     }
+
+    @Issue("SECURITY-663")
+    void testAsFile() {
+        File f = File.createTempFile("foo", ".tmp")
+
+        f.write("This is\na test\n")
+        assertIntercept(["new File(String)",
+                         'File.each(Script1$_run_closure1)',
+                         "ArrayList.leftShift(String)",
+                         "ArrayList.leftShift(String)",
+                         "ArrayList.join(String)"],
+            "This is a test",
+        """
+def s = []
+(\$/${f.canonicalPath}/\$ as File).each { s << it }
+s.join(' ')
+""")
+    }
 }
