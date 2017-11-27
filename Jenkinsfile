@@ -4,7 +4,10 @@ pipeline {
         timeout(time: 1, unit: 'HOURS')
     }
     agent {
-        label 'linux'
+        docker {
+            image 'maven:3.5.0-jdk-8'
+            label 'docker'
+        }
     }
     stages {
         stage('main') {
