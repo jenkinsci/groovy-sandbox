@@ -210,8 +210,12 @@ public class Checker {
                 if (chain.hasNext()) {
                     return chain.next().onSuperCall(this, s.senderType, s.receiver, method, args);
                 } else {
-                    MetaClass mc = InvokerHelper.getMetaClass(s.receiver.getClass());
-                    return mc.invokeMethod(s.senderType.getSuperclass(), s.receiver, method, args, true, true);
+                    try {
+                        MetaClass mc = InvokerHelper.getMetaClass(s.receiver.getClass());
+                        return mc.invokeMethod(s.senderType.getSuperclass(), s.receiver, method, args, true, true);
+                    } catch (GroovyRuntimeException gre) {
+                        throw ScriptBytecodeAdapter.unwrap(gre);
+                    }
                 }
             }
         }.call(s,_method,fixNull(_args));
