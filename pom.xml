@@ -9,7 +9,7 @@
   </parent>
 
   <artifactId>groovy-sandbox</artifactId>
-  <version>1.17</version>
+  <version>1.18-SNAPSHOT</version>
 
   <name>Groovy Sandbox</name>
   <description>Executes untrusted Groovy script safely</description>
@@ -105,7 +105,7 @@
     <connection>scm:git:git@github.com/jenkinsci/${project.artifactId}.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/jenkinsci/${project.artifactId}.git</developerConnection>
     <url>http://${project.artifactId}.kohsuke.org/</url>
-    <tag>groovy-sandbox-1.17</tag>
+    <tag>HEAD</tag>
   </scm>
 
   <distributionManagement>
