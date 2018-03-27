@@ -537,7 +537,9 @@ public class Checker {
      * @see SandboxTransformer#mightBePositionalArgumentConstructor
      */
     public static Object checkedCast(Class<?> clazz, Object exp, boolean ignoreAutoboxing, boolean coerce, boolean strict) throws Throwable {
-        if (coerce && exp != null &&
+        if (exp != null && clazz != null && clazz.isAssignableFrom(exp.getClass())) {
+            return clazz.cast(exp);
+        } else if (coerce && exp != null &&
                 // Ignore some things handled by DefaultGroovyMethods.asType(Collection, Class), e.g., `[1, 2, 3] as Set` (interface → first clause) or `[1, 2, 3] as HashSet` (collection assigned to concrete class → second clause):
                 !(Collection.class.isAssignableFrom(clazz) && clazz.getPackage().getName().equals("java.util"))) {
             if (clazz.isInterface()) {
