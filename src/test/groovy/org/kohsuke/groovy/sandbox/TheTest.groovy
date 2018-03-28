@@ -869,4 +869,16 @@ def s = []
 s.join(' ')
 """)
     }
+
+    @Issue("JENKINS-50380")
+    void testCheckedCastWhenAssignable() {
+        assertIntercept(['new NonArrayConstructorList(Boolean,Boolean)',
+                         'NonArrayConstructorList.join(String)'],
+            "one",
+            '''
+NonArrayConstructorList foo = new NonArrayConstructorList(true, false)
+List castFoo = (List)foo
+return castFoo.join('')
+''')
+    }
 }
