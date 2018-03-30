@@ -891,12 +891,16 @@ return castFoo.join('')
                          'SimpleNamedBean.name',
                          'SimpleNamedBean.name',
                          'SimpleNamedBean.name',
-                         'ArrayList.join(String)'],
-            "abc",
+                         'ArrayList.class',
+                         'ArrayList.join(String)',
+                         'String.plus(String)',
+                         'String.plus(Class)'],
+            "abc class java.util.ArrayList",
         '''
 def l = [new SimpleNamedBean("a"), new SimpleNamedBean("b"), new SimpleNamedBean("c")]
 def nameList = l.name
-return nameList.join('')
+def cl = l.class
+return nameList.join('') + ' ' + cl
 ''')
     }
 }
