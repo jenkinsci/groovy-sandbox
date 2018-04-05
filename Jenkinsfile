@@ -4,7 +4,7 @@ pipeline {
         timeout(time: 1, unit: 'HOURS')
     }
     agent {
-        docker {
+        docker { // checking
             image 'maven:3.5.0-jdk-8'
             label 'docker'
         }
