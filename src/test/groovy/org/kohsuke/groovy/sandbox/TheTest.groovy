@@ -881,4 +881,26 @@ List castFoo = (List)foo
 return castFoo.join('')
 ''')
     }
+
+    @Issue("JENKINS-50470")
+    void testCollectionGetProperty() {
+        assertIntercept(['new SimpleNamedBean(String)',
+                         'new SimpleNamedBean(String)',
+                         'new SimpleNamedBean(String)',
+                         // Before the JENKINS-50470 fix, this would just be ArrayList.name
+                         'SimpleNamedBean.name',
+                         'SimpleNamedBean.name',
+                         'SimpleNamedBean.name',
+                         'ArrayList.class',
+                         'ArrayList.join(String)',
+                         'String.plus(String)',
+                         'String.plus(Class)'],
+            "abc class java.util.ArrayList",
+        '''
+def l = [new SimpleNamedBean("a"), new SimpleNamedBean("b"), new SimpleNamedBean("c")]
+def nameList = l.name
+def cl = l.class
+return nameList.join('') + ' ' + cl
+''')
+    }
 }

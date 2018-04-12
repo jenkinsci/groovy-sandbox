@@ -246,7 +246,7 @@ public class Checker {
     public static Object checkedGetProperty(final Object _receiver, boolean safe, boolean spread, Object _property) throws Throwable {
         if (safe && _receiver==null)     return null;
 
-        if (spread) {
+        if (spread || (_receiver instanceof Collection && !BUILTIN_PROPERTIES.contains(_property))) {
             List<Object> r = new ArrayList<Object>();
             Iterator itr = InvokerHelper.asIterator(_receiver);
             while (itr.hasNext()) {
