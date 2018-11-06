@@ -39,6 +39,7 @@ import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
+@Issue("SECURITY-1186")
 public class FinalizerTest {
     private static final String SCRIPT_HARNESS =
             "class Global {\n" +
@@ -74,7 +75,6 @@ public class FinalizerTest {
     /**
      * These scripts are forbidden by {@link SandboxTransformer#call} after the SECURITY-1186 fix.
      */
-    @Issue("SECURITY-1186")
     @Test
     public void testOverridingFinalizeForbidden() {
         assertForbidden("@Override public void finalize()", true);
@@ -96,13 +96,13 @@ public class FinalizerTest {
      * These scripts throw compilation failures even before the fix for SECURITY-1186 because they
      * are improper overrides of {@link Object#finalize}.
      */
-    @Issue("SECURITY-1186")
     @Test
     public void testImproperOverrideOfFinalize() {
         assertImproperOverride("private void finalize()");
         assertImproperOverride("private static void finalize()");
         assertImproperOverride("private Object finalize()");
         assertImproperOverride("public Object finalize()");
+        assertImproperOverride("public Void finalize()");
         assertImproperOverride("def finalize()");
     }
 
@@ -110,7 +110,6 @@ public class FinalizerTest {
      * These classes are allowed by {@link SandboxTransformer#call} because their finalize method
      * won't be invoked outside of the sandbox by the JVM.
      */
-    @Issue("SECURITY-1186")
     @Test
     public void testFinalizePermittedAsNonOverride() {
         assertFinalizerNotCalled("public static void finalize()");
