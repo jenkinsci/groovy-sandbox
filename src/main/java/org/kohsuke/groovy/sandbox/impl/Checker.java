@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 
 import static org.codehaus.groovy.runtime.InvokerHelper.getMetaClass;
 import static org.codehaus.groovy.runtime.MetaClassHelper.convertToTypeArray;
@@ -537,12 +538,22 @@ public class Checker {
      * @see SandboxTransformer#mightBePositionalArgumentConstructor
      */
     public static Object checkedCast(Class<?> clazz, Object exp, boolean ignoreAutoboxing, boolean coerce, boolean strict) throws Throwable {
-        if (coerce && exp != null &&
+        return preCheckedCast(clazz, exp, ignoreAutoboxing, coerce, strict).call();
+    }
+
+    /** Same as {@link Callable} but can throw {@link Throwable}. */
+    @FunctionalInterface
+    public interface Thunk {
+        Object call() throws Throwable;
+    }
+
+    public static Thunk preCheckedCast(Class<?> clazz, Object exp, boolean ignoreAutoboxing, boolean coerce, boolean strict) throws Throwable {
+        if (exp != null &&
                 // Ignore some things handled by DefaultGroovyMethods.asType(Collection, Class), e.g., `[1, 2, 3] as Set` (interface → first clause) or `[1, 2, 3] as HashSet` (collection assigned to concrete class → second clause):
                 !(Collection.class.isAssignableFrom(clazz) && clazz.getPackage().getName().equals("java.util"))) {
             // Don't actually cast at all if this is already assignable.
             if (clazz.isAssignableFrom(exp.getClass())) {
-                return exp;
+                return () -> exp;
             } else if (clazz.isInterface()) {
                 for (Method m : clazz.getMethods()) {
                     Object[] args = new Object[m.getParameterTypes().length];
@@ -602,7 +613,7 @@ public class Checker {
             }
         }
         // TODO what does ignoreAutoboxing do?
-        return strict ? clazz.cast(exp) : coerce ? ScriptBytecodeAdapter.asType(exp, clazz) : ScriptBytecodeAdapter.castToType(exp, clazz);
+        return () -> strict ? clazz.cast(exp) : coerce ? ScriptBytecodeAdapter.asType(exp, clazz) : ScriptBytecodeAdapter.castToType(exp, clazz);
     }
     // https://stackoverflow.com/a/38243203/12916
     @SuppressWarnings("unchecked")
