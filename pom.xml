@@ -4,7 +4,7 @@
   <parent>
     <groupId>org.kohsuke</groupId>
     <artifactId>pom</artifactId>
-    <version>19</version>
+    <version>17</version>
     <relativePath />
   </parent>
 
