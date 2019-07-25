@@ -433,7 +433,9 @@ public class SandboxTransformer extends CompilationCustomizer {
                 MethodPointerExpression mpe = (MethodPointerExpression) exp;
                 return new ConstructorCallExpression(
                         new ClassNode(SandboxedMethodClosure.class),
-                        new ArgumentListExpression(mpe.getExpression(), mpe.getMethodName())
+                        new ArgumentListExpression(
+                                transform(mpe.getExpression()),
+                                transform(mpe.getMethodName()))
                 );
             }
 

@@ -10,10 +10,12 @@ import groovy.lang.MissingPropertyException;
 
 import java.io.File;
 import java.lang.reflect.Array;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import org.codehaus.groovy.classgen.asm.BinaryExpressionHelper;
 import org.codehaus.groovy.runtime.InvokerHelper;
+import org.codehaus.groovy.runtime.ResourceGroovyMethods;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
 import org.codehaus.groovy.runtime.callsite.CallSite;
 import org.codehaus.groovy.runtime.callsite.CallSiteArray;
@@ -548,6 +550,7 @@ public class Checker {
     }
 
     public static Thunk preCheckedCast(Class<?> clazz, Object exp, boolean ignoreAutoboxing, boolean coerce, boolean strict) throws Throwable {
+        // Note: Be careful calling methods on exp here since the user has control over that object.
         if (exp != null &&
                 // Ignore some things handled by DefaultGroovyMethods.asType(Collection, Class), e.g., `[1, 2, 3] as Set` (interface → first clause) or `[1, 2, 3] as HashSet` (collection assigned to concrete class → second clause):
                 !(Collection.class.isAssignableFrom(clazz) && clazz.getPackage().getName().equals("java.util"))) {
@@ -560,7 +563,7 @@ public class Checker {
                     for (int i = 0; i < args.length; i++) {
                         args[i] = getDefaultValue(m.getParameterTypes()[i]);
                     }
-                    // Yes we are deliberately ignoring the return value here:
+                    // We intercept all methods defined on the interface to ensure they are permitted, and deliberately ignore the return value:
                     new VarArgInvokerChain(exp) {
                         public Object call(Object receiver, String method, Object... args) throws Throwable {
                             if (chain.hasNext()) {
@@ -579,7 +582,13 @@ public class Checker {
                 // cf. mightBePositionalArgumentConstructor
                 Object[] args = null;
                 if (exp instanceof Collection) {
-                    args = ((Collection) exp).toArray();
+                    if (isCollectionSafeToCast((Collection) exp)) {
+                        args = ((Collection) exp).toArray();
+                    } else {
+                        throw new UnsupportedOperationException(
+                                "Casting non-standard Collections to a type via constructor is not supported. " +
+                                "Consider converting " + exp.getClass() + " to a Collection defined in the java.util package and then casting to " + clazz + ".");
+                    }
                 } else if (exp instanceof Map) {
                     args = new Object[] {exp};
                 } else { // arrays
@@ -587,7 +596,7 @@ public class Checker {
                     throw new UnsupportedOperationException("casting arrays to types via constructor is not yet supported");
                 }
                 if (args != null) {
-                    // Again we are deliberately ignoring the return value:
+                    // We intercept the constructor that will be used for the cast, and again, deliberately ignore the return value:
                     new VarArgInvokerChain(clazz) {
                         public Object call(Object receiver, String method, Object... args) throws Throwable {
                             if (chain.hasNext()) {
@@ -597,10 +606,12 @@ public class Checker {
                             }
                         }
                     }.call(clazz, null, args);
+                } else {
+                    throw new IllegalStateException(exp.getClass() + ".toArray() must not return null");
                 }
             } else if (clazz == File.class && exp instanceof CharSequence) {
                 Object[] args = new Object[]{exp.toString()};
-                // Again we are deliberately ignoring the return value:
+                // We intercept the constructor that will be used for the cast, and again, deliberately ignore the return value:
                 new VarArgInvokerChain(clazz) {
                     public Object call(Object receiver, String method, Object... args) throws Throwable {
                         if (chain.hasNext()) {
@@ -610,6 +621,34 @@ public class Checker {
                         }
                     }
                 }.call(clazz, null, args);
+            } else if (exp instanceof File && (clazz.isArray() || Collection.class.isAssignableFrom(clazz))) {
+                // see https://github.com/apache/groovy/blob/edcd6c4435138733668cd75ac0d3342efb39dc05/src/main/org/codehaus/groovy/runtime/typehandling/DefaultTypeTransformation.java#L472-L479
+                // We intercept the method that will be used for the cast, and again, deliberately ignore the return value:
+                new VarArgInvokerChain(clazz) {
+                    public Object call(Object receiver, String method, Object... args) throws Throwable {
+                        if (chain.hasNext() && receiver instanceof Class) {
+                            return chain.next().onStaticCall(this, (Class) receiver, method, args);
+                        } else {
+                            return null;
+                        }
+                    }
+                }.call(ResourceGroovyMethods.class, "readLines", exp);
+            } else if (exp instanceof Class && ((Class) exp).isEnum() && (clazz.isArray() || Collection.class.isAssignableFrom(clazz))) {
+                // see https://github.com/apache/groovy/blob/edcd6c4435138733668cd75ac0d3342efb39dc05/src/main/org/codehaus/groovy/runtime/typehandling/DefaultTypeTransformation.java#L480-L483
+                for (Field f : ((Class) exp).getFields()) {
+                    if (f.isEnumConstant()) {
+                        // We intercept all Enum constants to ensure they are permitted, and deliberately ignore the return value:
+                        new ZeroArgInvokerChain(exp) {
+                            public Object call(Object receiver, String field) throws Throwable {
+                                if (chain.hasNext() && receiver instanceof Class) {
+                                    return chain.next().onGetProperty(this, receiver, field);
+                                } else {
+                                    return null;
+                                }
+                            }
+                        }.call(exp, f.getName());
+                    }
+                }
             }
         }
         // TODO what does ignoreAutoboxing do?
@@ -627,5 +666,22 @@ public class Checker {
      */
     private static Object[] fixNull(Object[] args) {
         return args==null ? new Object[1] : args;
+    }
+
+    /**
+     * When casting collections to types via constructor, we cannot allow user-defined implementations of {@link Collection}.
+     * This is because a user-defined implementation of {@link Collection} can do tricky things to return a different
+     * set of elements for {@link Collection#toArray} inside of {@link #preCheckedCast} than whatever
+     * {@link ScriptBytecodeAdapter#asType} ends up using as the elements, so we are not able to guarantee that the
+     * Constructor we pre-checked is the one that will end up being invoked.
+     */
+    private static boolean isCollectionSafeToCast(Collection c) {
+        Package p = c.getClass().getPackage();
+        String packageName = null;
+        if (p != null) {
+            packageName = p.getName();
+        }
+        // TODO: Are there any other packages with collections that we should allow?
+        return "java.util".equals(packageName);
     }
 }
