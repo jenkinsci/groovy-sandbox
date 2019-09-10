@@ -194,6 +194,32 @@ public class SandboxTransformer extends CompilationCustomizer {
         "org.jenkinsci.plugins.workflow.cps.CpsScript"));
     /**
      * Apply SECURITY-582 fix to constructors.
+     *
+     * For example, given code like this:
+     * <pre>{@code
+     * class B { }
+     * class A extends B {
+     *     A(argsA...) {
+     *         super(argsB...)
+     *         ...
+     *     }
+     * }
+     * }</pre>
+     *
+     * {@link #processConstructors} will transform it into something like this:
+     *
+     * <pre>{@code
+     * class B { }
+     * class A extends B {
+     *     A(argsA...) {
+     *         this(argsA..., new Checker.SuperConstructorWrapper(argsB...))
+     *     }
+     *     A(argsA..., $scw) {
+     *         super($scw.argsB...)
+     *         ...
+     *     }
+     * }
+     * }</pre>
      */
     public void processConstructors(final ClassCodeExpressionTransformer visitor, ClassNode classNode) {
         ClassNode superClass = classNode.getSuperClass();
@@ -211,6 +237,15 @@ public class SandboxTransformer extends CompilationCustomizer {
                 declaredConstructors = new ArrayList<>(declaredConstructors);
             }
             for (ConstructorNode c : declaredConstructors) {
+                // Parameters are usually transformed in `ClassCodeExpressionTransformer.visitConstructorOrMethod`
+                // when `visitor.visitMethod(c)` is called, so we need to replicate that behavior here explicitly
+                // because we are not using the visitor.
+                for (Parameter p : c.getParameters()) {
+                    if (p.hasInitialExpression()) {
+                        Expression init = p.getInitialExpression();
+                        p.setInitialExpression(visitor.transform(init));
+                    }
+                }
                 Statement code = c.getCode();
                 List<Statement> body;
                 if (code instanceof BlockStatement) {

@@ -311,4 +311,20 @@ public class SandboxTransformerTest {
             "Integer.next()");
     }
 
+    @Test public void sandboxTransformsInitialExpressionsForConstructorParameters() throws Exception {
+        assertIntercept(
+                "class B { }\n" +
+                "class A extends B {\n" +
+                "  A(x = System.getProperties()) {\n" +
+                "    super()\n" +
+                "  }\n" +
+                "}\n" +
+                "new A()\n" +
+                "true\n",
+                true,
+                "new A()",
+                "System:getProperties()",
+                "new B()");
+    }
+
 }
