@@ -20,6 +20,7 @@ import org.codehaus.groovy.ast.ConstructorNode;
 import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.Parameter;
+import org.codehaus.groovy.ast.VariableScope;
 import org.codehaus.groovy.ast.expr.ArgumentListExpression;
 import org.codehaus.groovy.ast.expr.AttributeExpression;
 import org.codehaus.groovy.ast.expr.CastExpression;
@@ -395,7 +396,7 @@ public class SandboxTransformer extends CompilationCustomizer {
                 else
                     objExp = transform(call.getObjectExpression());
 
-                Expression arg1 = call.getMethod();
+                Expression arg1 = transform(call.getMethod());
                 Expression arg2 = transformArguments(call.getArguments());
 
                 if (call.getObjectExpression() instanceof VariableExpression && ((VariableExpression) call.getObjectExpression()).getName().equals("super")) {
@@ -542,7 +543,7 @@ public class SandboxTransformer extends CompilationCustomizer {
 
                         return makeCheckedCall(name,
                                 transformObjectExpression(pe),
-                                pe.getProperty(),
+                                transform(pe.getProperty()),
                                 boolExp(pe.isSafe()),
                                 boolExp(pe.isSpreadSafe()),
                                 intExp(be.getOperation().getType()),
@@ -553,6 +554,10 @@ public class SandboxTransformer extends CompilationCustomizer {
                         // while javadoc of FieldExpression isn't very clear,
                         // AsmClassGenerator maps this to GETSTATIC/SETSTATIC/GETFIELD/SETFIELD access.
                         // not sure how we can intercept this, so skipping this for now
+                        // Additionally, it looks like FieldExpression might only be used internally during class
+                        // generation for AttributeExpression/PropertyExpression in AsmClassGenerator, for example,
+                        // the receiver for the expression is always referenced indirectly via the stack, so we
+                        // are limited in what we can do at this level.
                         return super.transform(exp);
                     } else
                     if (lhs instanceof BinaryExpression) {
@@ -565,8 +570,8 @@ public class SandboxTransformer extends CompilationCustomizer {
                                     transform(be.getRightExpression())
                             );
                         }
-                    } else
-                        throw new AssertionError("Unexpected LHS of an assignment: " + lhs.getClass());
+                    }
+                    throw new AssertionError("Unexpected LHS of an assignment: " + lhs.getClass());
                 }
                 if (be.getOperation().getType()==Types.LEFT_SQUARE_BRACKET) {// array reference
                     if (interceptArray)
@@ -646,6 +651,7 @@ public class SandboxTransformer extends CompilationCustomizer {
             return super.transform(exp);
         }
 
+        // Handles the cases mentioned in BinaryExpressionHelper.execMethodAndStoreForSubscriptOperator: https://github.com/apache/groovy/blob/GROOVY_2_4_7/src/main/org/codehaus/groovy/classgen/asm/BinaryExpressionHelper.java#L695
         private Expression prefixPostfixExp(Expression whole, Expression atom, Token opToken, String mode) {
             String op = opToken.getText().equals("++") ? "next" : "previous";
 
@@ -697,14 +703,43 @@ public class SandboxTransformer extends CompilationCustomizer {
                 PropertyExpression pe = (PropertyExpression) atom;
                 return makeCheckedCall("checked" + mode + "Property",
                         transformObjectExpression(pe),
-                        pe.getProperty(),
+                        transform(pe.getProperty()),
                         boolExp(pe.isSafe()),
                         boolExp(pe.isSpreadSafe()),
                         stringExp(op)
                 );
             }
 
-            return whole;
+            // a.b++ where a.b is a FieldExpression.
+            // TODO: It is unclear if this is actually reachable. I think that syntax like `a.b` will always be a
+            // PropertyExpression in this context. We handle it explicitly as a precaution, since the catch-all
+            // below does not store the result, which would definitely be wrong for FieldExpression.
+            if (atom instanceof FieldExpression) {
+                // See note in innerTransform regarding FieldExpression; this type of expression cannot be intercepted.
+                return whole;
+            }
+
+            // method()++, 1++, any other cases where "atom" is not valid as the LHS of an assignment expression, so no
+            // store is performed, see https://github.com/apache/groovy/blob/GROOVY_2_4_7/src/main/org/codehaus/groovy/classgen/asm/BinaryExpressionHelper.java#L724.
+            if (mode.equals("Postfix")) {
+                // We need to intercept the call to x.next() while making sure that x is not evaluated more than once.
+                //     x++ -> (temp -> { temp.next(); temp }(x))
+                VariableScope closureScope = new VariableScope();
+                ClosureExpression closure = withLoc(whole, new ClosureExpression(
+                        new Parameter[] { new Parameter(ClassHelper.DYNAMIC_TYPE, "temp") },
+                        new BlockStatement(
+                                Arrays.asList(
+                                        new ExpressionStatement(new MethodCallExpression(
+                                                new VariableExpression("temp"), op, EMPTY_ARGUMENTS)),
+                                        new ExpressionStatement(new VariableExpression("temp"))),
+                                new VariableScope(closureScope))));
+                closure.setVariableScope(closureScope);
+                return transform(withLoc(whole,
+                        new MethodCallExpression(closure, "call", new ArgumentListExpression(atom))));
+            } else {
+                // ++x -> x.next()
+                return transform(withLoc(whole, new MethodCallExpression(atom, op, EMPTY_ARGUMENTS)));
+            }
         }
 
         /**

@@ -238,4 +238,77 @@ public class SandboxTransformerTest {
                 "Class.DAYS");
     }
 
+    @Issue("SECURITY-1538")
+    @Test public void sandboxTransformsMethodNameInMethodCalls() throws Exception {
+        assertIntercept(
+            "1.({ System.getProperties(); 'toString' }())()",
+            "1",
+            "Script1$_run_closure1.call()",
+            "System:getProperties()",
+            "Integer.toString()");
+    }
+
+    @Issue("SECURITY-1538")
+    @Test public void sandboxTransformsPropertyNameInLhsOfAssignmentOps() throws Exception {
+        assertIntercept(
+            "class Test {\n" +
+            "  def x\n" +
+            "}\n" +
+            "def t = new Test()\n" +
+            "t.({\n" +
+            "  System.getProperties()\n" +
+            "  'x'\n" +
+            "}()) = 1\n" +
+            "t.x",
+            1,
+            "new Test()",
+            "Script1$_run_closure1.call()",
+            "System:getProperties()",
+            "Test.x=Integer",
+            "Test.x");
+    }
+
+    @Issue("SECURITY-1538")
+    @Test public void sandboxTransformsPropertyNameInPrefixPostfixOps() throws Exception {
+        assertIntercept(
+            "class Test {\n" +
+            "  def x = 0\n" +
+            "}\n" +
+            "def t = new Test()\n" +
+            "(t.({\n" +
+            "  System.getProperties()\n" +
+            "  'x'\n" +
+            "}()))++\n" +
+            "t.x",
+            1,
+            "new Test()",
+            "Script1$_run_closure1.call()",
+            "System:getProperties()",
+            "Test.x",
+            "Integer.next()",
+            "Test.x=Integer",
+            "Test.x");
+    }
+
+    @Issue("SECURITY-1538")
+    @Test public void sandboxTransformsComplexExpressionsInPrefixOps() throws Exception {
+        assertIntercept(
+            "++({ System.getProperties(); 1 }())",
+            2,
+            "Script1$_run_closure1.call()",
+            "System:getProperties()",
+            "Integer.next()");
+    }
+
+    @Issue("SECURITY-1538")
+    @Test public void sandboxTransformsComplexExpressionsInPostfixOps() throws Exception {
+        assertIntercept(
+            "({ System.getProperties(); 1 }())++",
+            1,
+            "Script1$_run_closure2.call()",
+            "System:getProperties()",
+            "Script1$_run_closure1.call(Integer)",
+            "Integer.next()");
+    }
+
 }
