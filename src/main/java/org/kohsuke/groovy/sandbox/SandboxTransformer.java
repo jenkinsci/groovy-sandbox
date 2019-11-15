@@ -401,6 +401,12 @@ public class SandboxTransformer extends CompilationCustomizer {
                         // Explicitly defined parameters, i.e., ".findAll { i -> i == 'bar' }"
                         if (parameters.length > 0) {
                             for (Parameter p : parameters) {
+                                if (p.hasInitialExpression()) {
+                                    Expression init = p.getInitialExpression();
+                                    p.setInitialExpression(transform(init));
+                                }
+                            }
+                            for (Parameter p : parameters) {
                                 declareVariable(p);
                             }
                         } else {

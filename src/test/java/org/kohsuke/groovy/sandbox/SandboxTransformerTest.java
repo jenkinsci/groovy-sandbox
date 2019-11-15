@@ -327,4 +327,13 @@ public class SandboxTransformerTest {
                 "new B()");
     }
 
+    @Issue("SECURITY-1658")
+    @Test public void sandboxTransformsInitialExpressionsForClosureParameters() throws Exception {
+        assertIntercept(
+                "({ p = System.getProperties() -> true })()",
+                true,
+                "Script1$_run_closure1.call()",
+                "System:getProperties()");
+    }
+
 }
