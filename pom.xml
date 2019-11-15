@@ -9,14 +9,14 @@
   </parent>
 
   <artifactId>groovy-sandbox</artifactId>
-  <version>1.25</version>
+  <version>${revision}${changelist}</version>
 
   <name>Groovy Sandbox</name>
   <description>Executes untrusted Groovy script safely</description>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <revision>1.25</revision>
+    <revision>1.26</revision>
     <changelist>-SNAPSHOT</changelist>
     <!-- TODO: Move these three properties to the parent POM or use org.jenkins-ci:jenkins as the parent POM here -->
     <incrementals-enforce-minimum.version>1.1</incrementals-enforce-minimum.version>
@@ -129,7 +129,7 @@
     <connection>scm:git:git@github.com/jenkinsci/${project.artifactId}.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/jenkinsci/${project.artifactId}.git</developerConnection>
     <url>http://${project.artifactId}.kohsuke.org/</url>
-    <tag>groovy-sandbox-1.25</tag>
+    <tag>${scmTag}</tag>
   </scm>
 
   <distributionManagement>
