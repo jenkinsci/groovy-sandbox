@@ -14,7 +14,7 @@ Compile-time transformer to run Groovy code in a restrictive sandbox. Executes u
 </dependency>
 ```
 
-Versions after 1.19 are *not* published to Maven Central.  You will need to include the Jenkins repository, e.g.:
+Starting with version 1.20, this artifact is only published to the Jenkins Releases repository, not to Maven Central as was done previously. Here are the details for the Jenkins Releases repository:
 ```xml
 <repository>
   <id>jenkins-releases</id>
@@ -41,4 +41,3 @@ class Test {
     }
 }
 ```
-
