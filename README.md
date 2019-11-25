@@ -10,8 +10,17 @@ Compile-time transformer to run Groovy code in a restrictive sandbox. Executes u
 <dependency>
     <groupId>org.kohsuke</groupId>
     <artifactId>groovy-sandbox</artifactId>
-    <version>1.6</version>
+    <version>1.25</version>
 </dependency>
+```
+
+Starting with version 1.20, this artifact is only published to the Jenkins Releases repository, not to Maven Central as was done previously. Here are the details for the Jenkins Releases repository:
+```xml
+<repository>
+  <id>jenkins-releases</id>
+  <name>Jenkins Releases</name>
+  <url>https://repo.jenkins-ci.org/releases/</url>
+</repository>
 ```
 
 #### Usage
@@ -32,5 +41,3 @@ class Test {
     }
 }
 ```
-
-
