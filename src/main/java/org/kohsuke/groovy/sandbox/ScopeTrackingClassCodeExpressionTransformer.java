@@ -1,6 +1,7 @@
 package org.kohsuke.groovy.sandbox;
 
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer;
+import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.Parameter;
@@ -154,6 +155,14 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
     @Override
     public void visitClosureExpression(ClosureExpression expression) {
         try (StackVariableSet scope = new StackVariableSet(this)) {
+            Parameter[] parameters = expression.getParameters();
+            if (parameters != null && parameters.length > 0) {
+                for (Parameter p : parameters) {
+                    declareVariable(p);
+                }
+            } else {
+                declareVariable(new Parameter(ClassHelper.DYNAMIC_TYPE, "it"));
+            }
             super.visitClosureExpression(expression);
         }
     }
