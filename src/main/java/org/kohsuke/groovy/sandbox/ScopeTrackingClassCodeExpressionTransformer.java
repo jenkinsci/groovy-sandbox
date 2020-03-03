@@ -5,6 +5,7 @@ import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.Parameter;
 import org.codehaus.groovy.ast.Variable;
+import org.codehaus.groovy.ast.expr.BooleanExpression;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
 import org.codehaus.groovy.ast.expr.DeclarationExpression;
 import org.codehaus.groovy.ast.expr.Expression;
@@ -73,8 +74,12 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
 
     @Override
     public void visitDoWhileLoop(DoWhileStatement loop) {
+        // Do-while loops are not actually supported by Groovy 2.x.
         try (StackVariableSet scope = new StackVariableSet(this)) {
-            super.visitDoWhileLoop(loop);
+            loop.getLoopBlock().visit(this);
+        }
+        try (StackVariableSet scope = new StackVariableSet(this)) {
+            loop.setBooleanExpression((BooleanExpression) transform(loop.getBooleanExpression()));
         }
     }
 
@@ -111,7 +116,13 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
     @Override
     public void visitIfElse(IfStatement ifElse) {
         try (StackVariableSet scope = new StackVariableSet(this)) {
-            super.visitIfElse(ifElse);
+            ifElse.setBooleanExpression((BooleanExpression)transform(ifElse.getBooleanExpression()));
+        }
+        try (StackVariableSet scope = new StackVariableSet(this)) {
+            ifElse.getIfBlock().visit(this);
+        }
+        try (StackVariableSet scope = new StackVariableSet(this)) {
+            ifElse.getElseBlock().visit(this);
         }
     }
 
