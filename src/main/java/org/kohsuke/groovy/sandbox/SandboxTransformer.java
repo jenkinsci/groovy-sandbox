@@ -314,6 +314,46 @@ public class SandboxTransformer extends CompilationCustomizer {
         return new VisitorImpl(source, clazz);
     }
 
+    public boolean isInterceptMethodCall() {
+        return interceptMethodCall;
+    }
+
+    public void setInterceptMethodCall(boolean interceptMethodCall) {
+        this.interceptMethodCall = interceptMethodCall;
+    }
+
+    public boolean isInterceptConstructor() {
+        return interceptConstructor;
+    }
+
+    public void setInterceptConstructor(boolean interceptConstructor) {
+        this.interceptConstructor = interceptConstructor;
+    }
+
+    public boolean isInterceptProperty() {
+        return interceptProperty;
+    }
+
+    public void setInterceptProperty(boolean interceptProperty) {
+        this.interceptProperty = interceptProperty;
+    }
+
+    public boolean isInterceptArray() {
+        return interceptArray;
+    }
+
+    public void setInterceptArray(boolean interceptArray) {
+        this.interceptArray = interceptArray;
+    }
+
+    public boolean isInterceptAttribute() {
+        return interceptAttribute;
+    }
+
+    public void setInterceptAttribute(boolean interceptAttribute) {
+        this.interceptAttribute = interceptAttribute;
+    }
+
     class VisitorImpl extends ScopeTrackingClassCodeExpressionTransformer {
         private final SourceUnit sourceUnit;
         /**
