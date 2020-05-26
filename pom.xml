@@ -132,13 +132,6 @@
     <tag>${scmTag}</tag>
   </scm>
 
-  <distributionManagement>
-    <site>
-      <id>github-pages</id>
-      <url>gitsite:git@github.com/jenkinsci/${project.artifactId}.git</url>
-    </site>
-  </distributionManagement>
-
   <reporting>
     <plugins>
       <plugin>
