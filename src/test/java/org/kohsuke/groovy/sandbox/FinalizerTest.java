@@ -125,6 +125,8 @@ public class FinalizerTest {
 
     private void assertForbidden(String methodStub, boolean isDangerous) {
         String script = SCRIPT_HARNESS.replace("METHOD", methodStub);
+        ClassRecorder cr = new ClassRecorder();
+        cr.register();
         try {
             sandboxedSh.evaluate(script);
             fail("Should have failed");
@@ -133,12 +135,16 @@ public class FinalizerTest {
             Exception innerE = e.getErrorCollector().getException(0);
             assertThat(innerE, instanceOf(SecurityException.class));
             assertThat(innerE.getMessage(), containsString("Object.finalize()"));
+        } finally {
+            cr.unregister();
         }
         Object actual = unsandboxedSh.evaluate(script);
         assertThat(actual, equalTo((Object)isDangerous));
     }
 
     private void assertImproperOverride(String methodStub) {
+        ClassRecorder cr = new ClassRecorder();
+        cr.register();
         try {
             sandboxedSh.evaluate(SCRIPT_HARNESS.replace("METHOD", methodStub));
             fail("Should have failed");
@@ -147,12 +153,20 @@ public class FinalizerTest {
             assertThat(e.getMessage(), anyOf(
                     containsString("cannot override finalize in java.lang.Object"),
                     containsString("incompatible with void in java.lang.Object")));
+        } finally {
+            cr.unregister();
         }
     }
 
     private void assertFinalizerNotCalled(String methodStub) {
-        Boolean actual = (Boolean)sandboxedSh.evaluate(SCRIPT_HARNESS.replace("METHOD", methodStub));
-        assertThat(actual, equalTo(false));
+        ClassRecorder cr = new ClassRecorder();
+        cr.register();
+        try {
+            Boolean actual = (Boolean)sandboxedSh.evaluate(SCRIPT_HARNESS.replace("METHOD", methodStub));
+            assertThat(actual, equalTo(false));
+        } finally {
+            cr.unregister();
+        }
     }
 
 }

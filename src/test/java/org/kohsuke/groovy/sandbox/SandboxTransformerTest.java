@@ -42,7 +42,9 @@ import org.jvnet.hudson.test.Issue;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.fail;
 
 public class SandboxTransformerTest {
     public @Rule ErrorCollector ec = new ErrorCollector();
@@ -447,6 +449,35 @@ public class SandboxTransformerTest {
                 null,
                 "new Sub()",
                 "new Super()");
+    }
+
+    @Issue("SECURITY-2020")
+    @Test public void sandboxedCodeRejectedWhenExecutedOutsideOfSandbox() throws Exception {
+        cr.reset();
+        cr.register();
+        Object returnValue;
+        try {
+            returnValue = sandboxedSh.evaluate(
+                    "class Test {\n" +
+                    "  @Override public String toString() {\n" +
+                    "    System.getProperties()\n" +
+                    "    'test'\n" +
+                    "  }\n" +
+                    "}\n" +
+                    "new Test()");
+        } finally {
+            cr.unregister();
+        }
+        try {
+            // Test.equals and Test.getClass are inherited and not sandbox-transformed, so they can be called outside of the sandbox.
+            assertFalse(returnValue.equals(new Object()));
+            assertThat(returnValue.getClass().getSimpleName(), equalTo("Test"));
+            // Test.toString is defined in the sandbox, so it cannot be called outside of the sandbox.
+            returnValue.toString();
+            fail("Test.toString should have thrown a SecurityException");
+        } catch (SecurityException e) {
+            assertThat(e.getMessage(), equalTo("Rejecting unsandboxed static method call: java.lang.System.getProperties()"));
+        }
     }
 
 }
