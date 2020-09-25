@@ -480,4 +480,28 @@ public class SandboxTransformerTest {
         }
     }
 
+    @Test public void constructorWithVarArgs() throws Exception {
+        assertIntercept(
+                "def result = []\n" +
+                "class Test {\n" +
+                "  Test(List<Integer> result, Integer... vals) {\n" +
+                "    result.add(vals.sum())\n" +
+                "  }\n" +
+                "}\n" +
+                "new Test(result, 1)\n" +
+                "new Test(result, 2, 3)\n" +
+                "new Test(result)\n" +
+                "result",
+                Arrays.asList(1, 5, null),
+                "new Test(ArrayList,Integer)",
+                "Integer[].sum()",
+                "ArrayList.add(Integer)",
+                "new Test(ArrayList,Integer,Integer)",
+                "Integer[].sum()",
+                "ArrayList.add(Integer)",
+                "new Test(ArrayList)",
+                "Integer[].sum()",
+                "ArrayList.add(null)");
+    }
+
 }

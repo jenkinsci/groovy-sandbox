@@ -121,12 +121,29 @@ public class GroovyCallSiteSelector {
         Class<?>[] parameterTypes = c.getParameterTypes();
         for (int i = 0; i < parameterTypes.length; i++) {
             Class<?> parameterType = parameterTypes[i];
-            Object arg = args[i];
-            for (Class<?> syntheticParamType : SYNTHETIC_CONSTRUCTOR_PARAMETER_TYPES) {
-                // Using explicit equality checks instead of `instanceOf` to disallow subclasses of SuperConstructorWrapper and ThisConstructorWrapper.
-                if (parameterType == syntheticParamType && (arg == null || arg.getClass() != syntheticParamType)) {
+            if (c.isVarArgs() && i == parameterTypes.length - 1) {
+                // If this is a vararags constructor, there can be 0 or more arguments for the final parameter.
+                for (int j = i; j < args.length; j++) {
+                    Object arg = args[j];
+                    if (isIllegalArgumentForSyntheticParameter(parameterType, arg)) {
+                        return true;
+                    }
+                }
+            } else {
+                Object arg = args[i];
+                if (isIllegalArgumentForSyntheticParameter(parameterType, arg)) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isIllegalArgumentForSyntheticParameter(Class<?> parameterType, Object arg) {
+        for (Class<?> syntheticParamType : SYNTHETIC_CONSTRUCTOR_PARAMETER_TYPES) {
+            // Using explicit equality checks instead of `instanceOf` to disallow subclasses of SuperConstructorWrapper and ThisConstructorWrapper.
+            if (parameterType == syntheticParamType && (arg == null || arg.getClass() != syntheticParamType)) {
+                return true;
             }
         }
         return false;
