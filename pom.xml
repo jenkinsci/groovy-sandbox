@@ -109,7 +109,7 @@
     <dependency>
       <groupId>org.codehaus.groovy</groupId>
       <artifactId>groovy</artifactId>
-      <version>2.4.12</version> <!-- Note: Do not update past 2.4.12 unless Jenkins core is updated to use a newer version of Groovy. -->
+      <version>2.4.12</version> <!-- https://github.com/jenkinsci/bom/pull/449 -->
     </dependency>
     <dependency>
       <groupId>junit</groupId>
