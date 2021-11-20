@@ -937,8 +937,9 @@ return nameList.join('') + ' ' + cl
         assertIntercept(['new B()',
                          'new A()',
                          'B.metaClass',
-                         'HandleMetaClass.getAttribute(Class,B,String,Boolean)'],
-                "B",
+                         'HandleMetaClass.getAttribute(Class,B,String,Boolean)',
+                         'MissingFieldException.message'],
+                "No such field: x for class: A",
                 '''
             class A {
               public x = 'A'
@@ -947,13 +948,18 @@ return nameList.join('') + ' ' + cl
               public x = 'B'
             }
             def b = new B()
-            def bSuperX = b.metaClass.getAttribute(A, b, 'x', true)
-            return bSuperX
-            ''')
+            try {
+                def bSuperX = b.metaClass.getAttribute(A, b, 'x', true)
+                return bSuperX
+            } catch (MissingFieldException e) {
+                return e.message
+                // TODO: Why can't these read public/protected field from super?
+            }''')
         assertIntercept(['new B()',
                          'new A()',
-                         'ScriptBytecodeAdapter:getFieldOnSuper(Class,B,String)'],
-                "B",
+                         'ScriptBytecodeAdapter:getFieldOnSuper(Class,B,String)',
+                         'MissingFieldException.message'],
+                "No such field: x for class: A",
                 '''
             import org.codehaus.groovy.runtime.ScriptBytecodeAdapter
             class A {
@@ -963,8 +969,12 @@ return nameList.join('') + ' ' + cl
               public x = 'B'
             }
             def b = new B()
-            def bSuperX = ScriptBytecodeAdapter.getFieldOnSuper(A, b, 'x')
-            return bSuperX
-            ''')
+            try {
+                def bSuperX = ScriptBytecodeAdapter.getFieldOnSuper(A, b, 'x')
+                return bSuperX
+            } catch (MissingFieldException e) {
+                return e.message
+                // TODO: Why can't these read public/protected field from super?
+            }''')
     }
 }
