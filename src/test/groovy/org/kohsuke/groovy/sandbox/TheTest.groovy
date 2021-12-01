@@ -903,4 +903,68 @@ def cl = l.class
 return nameList.join('') + ' ' + cl
 ''')
     }
+
+    @Issue("JENKINS-65237")
+    void testGetFieldOnSuper() {
+        assertIntercept(['new A()',
+                         'A.metaClass',
+                         'HandleMetaClass.getAttribute(Class,A,String,Boolean)'],
+                "A",
+                '''
+            class A {
+              public x = 'A'
+            }
+            def a = new A()
+            def ax = a.metaClass.getAttribute(A, a, 'x', false)
+            return ax
+            ''')
+        assertIntercept(['new B()',
+                         'new A()',
+                         'B.metaClass',
+                         'HandleMetaClass.getAttribute(Class,B,String,Boolean)'],
+                "B",
+                '''
+            class A {
+              public x = 'A'
+            }
+            class B extends A {
+              public x = 'B'
+            }
+            def b = new B()
+            def bx = b.metaClass.getAttribute(B, b, 'x', false)
+            return bx
+            ''')
+        assertIntercept(['new B()',
+                         'new A()',
+                         'B.metaClass',
+                         'HandleMetaClass.getAttribute(Class,B,String,Boolean)'],
+                "B",
+                '''
+            class A {
+              public x = 'A'
+            }
+            class B extends A {
+              public x = 'B'
+            }
+            def b = new B()
+            def bSuperX = b.metaClass.getAttribute(A, b, 'x', true)
+            return bSuperX
+            ''')
+        assertIntercept(['new B()',
+                         'new A()',
+                         'ScriptBytecodeAdapter:getFieldOnSuper(Class,B,String)'],
+                "B",
+                '''
+            import org.codehaus.groovy.runtime.ScriptBytecodeAdapter
+            class A {
+              public x = 'A'
+            }
+            class B extends A {
+              public x = 'B'
+            }
+            def b = new B()
+            def bSuperX = ScriptBytecodeAdapter.getFieldOnSuper(A, b, 'x')
+            return bSuperX
+            ''')
+    }
 }
