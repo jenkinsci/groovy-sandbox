@@ -1,13 +1,16 @@
 package org.kohsuke.groovy.sandbox.impl;
 
 import groovy.lang.Closure;
+import groovy.lang.EmptyRange;
 import groovy.lang.GString;
 import groovy.lang.GroovyRuntimeException;
+import groovy.lang.IntRange;
 import groovy.lang.MetaClass;
 import groovy.lang.MetaClassImpl;
 import groovy.lang.MetaMethod;
 import groovy.lang.MissingMethodException;
 import groovy.lang.MissingPropertyException;
+import groovy.lang.ObjectRange;
 
 import java.io.File;
 import java.lang.reflect.Array;
@@ -632,6 +635,71 @@ public class Checker {
     }
 
     /**
+     * Intercepts range expressions of the form {@code [x..y]} or {@code [x..<y]}.
+     *
+     * If the from and to expressions are not integers, this operator constructs a {@link ObjectRange}, which involves
+     * calling various methods on the endpoints during the construction of the range and whenever the range is used.
+     * We handle this like we do interfaces in {@link #preCheckedCast} and intercept all of the methods that may be
+     * called before allowing the range to be constructed rather than trying to implement our own range type that is
+     * sandbox-aware.
+     *
+     * @see ScriptBytecodeAdapter#createRange
+     * @see ObjectRange
+     */
+    public static Object checkedCreateRange(Object from, Object to, boolean inclusive) throws Throwable {
+        if (from instanceof Integer && to instanceof Integer) {
+            if (inclusive || from != to) {
+                return checkedConstructor(IntRange.class, new Object[] { inclusive, from, to });
+            }
+            // Fallthrough for EmptyRange
+        }
+        if (!inclusive) {
+            if (Boolean.TRUE.equals(checkedComparison(from, Types.COMPARE_EQUAL, to))) {
+                // Unchecked cast to Comparable matches the behavior of ScriptBytecodeAdapter.createRange.
+                return checkedConstructor(EmptyRange.class, new Object[] { (Comparable)from });
+            }
+            if (checkedComparison(from, Types.COMPARE_GREATER_THAN, to) == Boolean.TRUE) {
+                to = checkedCall(to, false, false, "next", EMPTY_ARRAY);
+            } else {
+                to = checkedCall(to, false, false, "previous", EMPTY_ARRAY);
+            }
+        }
+        // Unlike IntRange and EmptyRange, ObjectRange calls various methods reflectively, so we cannot allow users to
+        // create an ObjectRange directly. Instead, we intercept potential reflective calls and create the range ourselves.
+        interceptRangeMethods((Comparable)from);
+        interceptRangeMethods((Comparable)to);
+        // Unchecked cast to Comparable matches the behavior of ScriptBytecodeAdapter.createRange.
+        return new ObjectRange((Comparable)from, (Comparable)to);
+    }
+
+    /**
+     * {@link ObjectRange} calls various methods on its endpoints internally depending on how it is used.
+     *
+     * Rather than trying to intercept those calls as they happen (by implementing a sandbox-aware {@link ObjectRange} subclass),
+     * we intercept all of the possible calls that might be made before we even create the range.
+     */
+    private static void interceptRangeMethods(Comparable value) throws Throwable {
+        if (value == null) {
+            return;
+        }
+        for (String method : new String[] { "compareTo", "next", "previous" }) {
+            Object[] args = new Object[0];
+            if (method.equals("compareTo")) {
+                args = new Object[]{ null };
+            }
+            new VarArgInvokerChain(value) {
+                public Object call(Object receiver, String method, Object... args) throws Throwable {
+                    if (chain.hasNext()) {
+                        return chain.next().onMethodCall(this, receiver, method, args);
+                    } else {
+                        return null;
+                    }
+                }
+            }.call(value, method, args);
+        }
+    }
+
+    /**
      * Intercepts unary expressions of the form {@code -value}.
      *
      * In Groovy, this operator may result in a call to a method named {@code negative} on the receiver or to one
@@ -930,6 +998,7 @@ public class Checker {
         addReplacement(ScriptBytecodeAdapter.class, "bitwiseNegate", "checkedBitwiseNegate", Object.class);
         addReplacement(ScriptBytecodeAdapter.class, "unaryMinus", "checkedUnaryMinus", Object.class);
         addReplacement(ScriptBytecodeAdapter.class, "unaryPlus", "checkedUnaryPlus", Object.class);
+        addReplacement(ScriptBytecodeAdapter.class, "createRange", "checkedCreateRange", Object.class, Object.class, boolean.class);
     }
 
     private static void addReplacement(Class<?> clazz, String name, String checkedName, Class<?>... parameterTypes) {

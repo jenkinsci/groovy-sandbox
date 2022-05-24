@@ -25,7 +25,10 @@
 package org.kohsuke.groovy.sandbox;
 
 import groovy.lang.Binding;
+import groovy.lang.EmptyRange;
 import groovy.lang.GroovyShell;
+import groovy.lang.IntRange;
+import groovy.lang.ObjectRange;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.file.Files;
@@ -151,6 +154,23 @@ public class SandboxTransformerTest {
         });
         unsandboxedEval(expression, expectedReturnValue, e -> {
             throw new RuntimeException("Failed to evaluate unsandboxed expression: " + expression, e);
+        });
+    }
+
+    /**
+     * Execute a Groovy expression both in and out of the sandbox and check that evaluating the the script throws an
+     * exception with the expected error message.
+     * @param expression The Groovy expression to execute.
+     * @param expectedErrorMessage The expected error message of the exception thrown when the script is evaluated.
+     */
+    private void assertFails(String expression, String expectedErrorMessage) {
+        sandboxedEval(expression, ShouldFail.class, e -> {
+            assertThat("Unexpected error evaluating sandboxed expression: " + expression,
+                    e.getMessage(), equalTo(expectedErrorMessage));
+        });
+        unsandboxedEval(expression, ShouldFail.class, e -> {
+            assertThat("Unexpected error evaluating unsandboxed expression: " + expression,
+                    e.getMessage(), equalTo(expectedErrorMessage));
         });
     }
 
@@ -545,7 +565,38 @@ public class SandboxTransformerTest {
                 "SandboxTransformerTest$OperatorOverloader.bitwiseNegate()");
     }
 
-    @Test public void unaryExpressionSmokes() {
+    @Test public void sandboxInterceptsRangeExpressions() {
+        assertIntercept(
+                "def auditLog = []\n" +
+                "def range = new SandboxTransformerTest.OperatorOverloader(auditLog, 1)..<(new SandboxTransformerTest.OperatorOverloader(auditLog, 4))\n" +
+                "def result = []\n" +
+                "for (o in range) { result.add(o.value) }\n" +
+                "result.addAll(auditLog)\n" +
+                "result\n",
+                // These are the calls that actually happened at runtime.
+                Arrays.asList(1, 2, 3, "compareTo", "compareTo", "previous", "compareTo", "compareTo", "next", "compareTo", "compareTo", "next", "compareTo", "compareTo", "next", "compareTo", "compareTo", "next", "next"),
+                "new SandboxTransformerTest$OperatorOverloader(ArrayList,Integer)",
+                "new SandboxTransformerTest$OperatorOverloader(ArrayList,Integer)",
+                // These next 10 interceptions are from Checker.checkedRange and Checker.checkedComparison.
+                "SandboxTransformerTest$OperatorOverloader.compareTo(SandboxTransformerTest$OperatorOverloader)",
+                "SandboxTransformerTest$OperatorOverloader.compareTo(SandboxTransformerTest$OperatorOverloader)",
+                "SandboxTransformerTest$OperatorOverloader.previous()",
+                "SandboxTransformerTest$OperatorOverloader.compareTo(null)",
+                "SandboxTransformerTest$OperatorOverloader.next()",
+                "SandboxTransformerTest$OperatorOverloader.previous()",
+                "SandboxTransformerTest$OperatorOverloader.compareTo(null)",
+                "SandboxTransformerTest$OperatorOverloader.next()",
+                "SandboxTransformerTest$OperatorOverloader.previous()",
+                "SandboxTransformerTest$OperatorOverloader.value",
+                "ArrayList.add(Integer)",
+                "SandboxTransformerTest$OperatorOverloader.value",
+                "ArrayList.add(Integer)",
+                "SandboxTransformerTest$OperatorOverloader.value",
+                "ArrayList.add(Integer)",
+                "ArrayList.addAll(ArrayList)");
+    }
+
+    @Test public void unaryExpressionsSmoke() {
         // Bitwise negate
         assertEvaluate("~1", ~1);
         assertEvaluate("~2L", ~2L);
@@ -575,7 +626,29 @@ public class SandboxTransformerTest {
         assertEvaluate("+[1, 2L, 6.3f]", Arrays.asList(1, 2L, 6.3f));
     }
 
-    private static class OperatorOverloader {
+    @Test
+    public void rangeExpressionsSmoke() {
+        assertEvaluate("1..3", new IntRange(true, 1, 3));
+        assertEvaluate("1..<3", new IntRange(false, 1, 3));
+        assertEvaluate("'a'..'c'", new ObjectRange('a', 'c'));
+        assertEvaluate("'a'..<'c'", new ObjectRange('a', 'b'));
+        assertEvaluate("'a'..<'a'", new EmptyRange('a'));
+        assertEvaluate("1..<1", new EmptyRange(1));
+        assertEvaluate("'A'..67", new IntRange(true, 65, 67));
+        assertEvaluate("'a'..'ab'", new ObjectRange("a", "ab"));
+        assertEvaluate("'ab'..'a'", new ObjectRange("ab", "a"));
+        // Checking consistency in error messages.
+        assertFails("'a'..67", "Incompatible Strings for Range: starting String is longer than ending string");
+        assertFails("null..1", "Must specify a non-null value for the 'from' index in a Range");
+        assertFails("1..null", "Must specify a non-null value for the 'to' index in a Range");
+        assertFails("null..null", "Must specify a non-null value for the 'from' index in a Range");
+        assertFails("1..'abc'", "Unable to create range due to incompatible types: Integer..String (possible missing brackets around range?)");
+        assertFails("'abc'..1", "Unable to create range due to incompatible types: String..Integer (possible missing brackets around range?)");
+        assertFails("(new Object())..1", "java.lang.Object cannot be cast to java.lang.Comparable");
+        assertFails("1..(new Object())", "java.lang.Object cannot be cast to java.lang.Comparable");
+    }
+
+    private static class OperatorOverloader implements Comparable<OperatorOverloader> {
         private final List<String> auditLog;
         private final int value;
 
@@ -597,6 +670,22 @@ public class SandboxTransformerTest {
         public int bitwiseNegate() {
             auditLog.add("bitwiseNegate");
             return  ~value;
+        }
+
+        @Override
+        public int compareTo(OperatorOverloader other) {
+            auditLog.add("compareTo");
+            return Integer.compare(value, other.value);
+        }
+
+        public OperatorOverloader next() {
+            auditLog.add("next");
+            return new OperatorOverloader(auditLog, value + 1);
+        }
+
+        public OperatorOverloader previous() {
+            auditLog.add("previous");
+            return new OperatorOverloader(auditLog, value - 1);
         }
     }
 

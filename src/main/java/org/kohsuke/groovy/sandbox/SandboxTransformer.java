@@ -38,6 +38,7 @@ import org.codehaus.groovy.ast.expr.MethodPointerExpression;
 import org.codehaus.groovy.ast.expr.PostfixExpression;
 import org.codehaus.groovy.ast.expr.PrefixExpression;
 import org.codehaus.groovy.ast.expr.PropertyExpression;
+import org.codehaus.groovy.ast.expr.RangeExpression;
 import org.codehaus.groovy.ast.expr.StaticMethodCallExpression;
 import org.codehaus.groovy.ast.expr.TupleExpression;
 import org.codehaus.groovy.ast.expr.UnaryMinusExpression;
@@ -722,6 +723,14 @@ public class SandboxTransformer extends CompilationCustomizer {
             if (exp instanceof BitwiseNegationExpression) {
                 BitwiseNegationExpression bne = (BitwiseNegationExpression) exp;
                 return makeCheckedCall("checkedBitwiseNegate", transform(bne.getExpression()));
+            }
+
+            if (exp instanceof RangeExpression) {
+                RangeExpression re = (RangeExpression) exp;
+                return makeCheckedCall("checkedCreateRange",
+                        transform(re.getFrom()),
+                        transform(re.getTo()),
+                        boolExp(re.isInclusive()));
             }
 
             if (exp instanceof UnaryMinusExpression) {
