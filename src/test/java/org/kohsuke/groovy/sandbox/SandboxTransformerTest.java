@@ -26,10 +26,13 @@ package org.kohsuke.groovy.sandbox;
 
 import groovy.lang.Binding;
 import groovy.lang.GroovyShell;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.codehaus.groovy.control.customizers.ImportCustomizer;
@@ -38,6 +41,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ErrorCollector;
 import org.jvnet.hudson.test.Issue;
+import org.kohsuke.groovy.sandbox.impl.GroovyCallSiteSelector;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
@@ -86,7 +90,9 @@ public class SandboxTransformerTest {
         cr.register();
         try {
             Object actual = sandboxedSh.evaluate(expression);
-            ec.checkThat("Sandboxed result does not match expected result", actual, equalTo(expectedResult));
+            String actualType = GroovyCallSiteSelector.getName(actual);
+            String expectedType = GroovyCallSiteSelector.getName(expectedResult);
+            ec.checkThat("Sandboxed result (" + actualType + ") does not match expected result (" + expectedType + ")", actual, equalTo(expectedResult));
         } catch (Exception e) {
             ec.checkSucceeds(() -> {
                 try {
@@ -110,7 +116,9 @@ public class SandboxTransformerTest {
     private void unsandboxedEval(String expression, Object expectedResult, ExceptionHandler handler) {
         try {
             Object actual = unsandboxedSh.evaluate(expression);
-            ec.checkThat("Unsandboxed result does not match expected result", actual, equalTo(expectedResult));
+            String actualType = GroovyCallSiteSelector.getName(actual);
+            String expectedType = GroovyCallSiteSelector.getName(expectedResult);
+            ec.checkThat("Unsandboxed result (" + actualType + ") does not match expected result (" + expectedType + ")", actual, equalTo(expectedResult));
         } catch (Exception e) {
             ec.checkSucceeds(() -> {
                 handler.handleException(e);
@@ -127,13 +135,23 @@ public class SandboxTransformerTest {
      * @param expectedCalls The method calls that are expected to be intercepted by the sandbox.
      */
     private void assertIntercept(String expression, Object expectedReturnValue, String... expectedCalls) {
+        assertEvaluate(expression, expectedReturnValue);
+        ec.checkThat(cr.toString().split("\n"), equalTo(expectedCalls));
+    }
+
+    /**
+     * Execute a Groovy expression both in and out of the sandbox and check that the return value matches the
+     * expected value.
+     * @param expression The Groovy expression to execute.
+     * @param expectedReturnValue The expected return value for running the script.
+     */
+    private void assertEvaluate(String expression, Object expectedReturnValue) {
         sandboxedEval(expression, expectedReturnValue, e -> {
             throw new RuntimeException("Failed to evaluate sandboxed expression: " + expression, e);
         });
         unsandboxedEval(expression, expectedReturnValue, e -> {
             throw new RuntimeException("Failed to evaluate unsandboxed expression: " + expression, e);
         });
-        ec.checkThat(cr.toString().split("\n"), equalTo(expectedCalls));
     }
 
     @Issue("SECURITY-1465")
@@ -513,6 +531,73 @@ public class SandboxTransformerTest {
                 "C.getProp()",
                 "System:setProperty(String,String)",
                 "HashCodeHelper:updateHash(Integer,String)");
+    }
+
+    @Test public void sandboxInterceptsUnaryOperatorExpressions() {
+        assertIntercept(
+                "def auditLog = []\n" +
+                "def o = new SandboxTransformerTest.OperatorOverloader(auditLog, 2)\n" +
+                "[-o, +o, ~o, *auditLog]",
+                Arrays.asList(-2, 2, ~2, "negative", "positive", "bitwiseNegate"),
+                "new SandboxTransformerTest$OperatorOverloader(ArrayList,Integer)",
+                "SandboxTransformerTest$OperatorOverloader.negative()",
+                "SandboxTransformerTest$OperatorOverloader.positive()",
+                "SandboxTransformerTest$OperatorOverloader.bitwiseNegate()");
+    }
+
+    @Test public void unaryExpressionSmokes() {
+        // Bitwise negate
+        assertEvaluate("~1", ~1);
+        assertEvaluate("~2L", ~2L);
+        assertEvaluate("~BigInteger.valueOf(3L)", BigInteger.valueOf(3L).not());
+        assertEvaluate("(~'test').matcher('test').matches()", true); // Pattern does not override equals or hashcode.
+        assertEvaluate("(~\"tes${'t'}\").matcher('test').matches()", true); // Pattern does not override equals or hashcode.
+        assertEvaluate("~[1, 2L]", Arrays.asList(~1, ~2L));
+        // Unary minus
+        assertEvaluate("-1", -1);
+        assertEvaluate("-2L", -2L);
+        assertEvaluate("-BigInteger.valueOf(3L)", BigInteger.valueOf(3L).negate());
+        assertEvaluate("-4.1", BigDecimal.valueOf(4.1).negate());
+        assertEvaluate("-5.2d", -5.2);
+        assertEvaluate("-6.3f", -6.3f);
+        assertEvaluate("-(short)7", (short)(-7));
+        assertEvaluate("-(byte)8", (byte)(-8));
+        assertEvaluate("-[1, 2L, 6.3f]", Arrays.asList(-1, -2L, -6.3f));
+        // Unary plus
+        assertEvaluate("+1", 1);
+        assertEvaluate("+2L", 2L);
+        assertEvaluate("+BigInteger.valueOf(3L)", BigInteger.valueOf(3L));
+        assertEvaluate("+4.1", BigDecimal.valueOf(4.1));
+        assertEvaluate("+5.2d", 5.2);
+        assertEvaluate("+6.3f", 6.3f);
+        assertEvaluate("+(short)7", (short)7);
+        assertEvaluate("+(byte)8", (byte)8);
+        assertEvaluate("+[1, 2L, 6.3f]", Arrays.asList(1, 2L, 6.3f));
+    }
+
+    private static class OperatorOverloader {
+        private final List<String> auditLog;
+        private final int value;
+
+        private OperatorOverloader(List<String> auditLog, int value) {
+            this.auditLog = auditLog;
+            this.value = value;
+        }
+
+        public int negative() {
+            auditLog.add("negative");
+            return -value;
+        }
+
+        public int positive() {
+            auditLog.add("positive");
+            return value;
+        }
+
+        public int bitwiseNegate() {
+            auditLog.add("bitwiseNegate");
+            return  ~value;
+        }
     }
 
 }
