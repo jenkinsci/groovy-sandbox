@@ -480,4 +480,39 @@ public class SandboxTransformerTest {
         }
     }
 
+    @Test public void equalsAndHashCode() throws Exception {
+        assertIntercept(
+                "@groovy.transform.EqualsAndHashCode\n" +
+                "class C {\n" +
+                "    def prop\n" +
+                "    def getProp() {\n" +
+                "        System.setProperty('x', 'y')\n" +
+                "        'foo'\n" +
+                "    }\n" +
+                "}\n" +
+                "[new C().equals(new C()), new C().hashCode()]\n",
+                Arrays.asList(true, 105511),
+                "new C()",
+                "new C()",
+                "C.equals(C)",
+                "C.equals(null)",
+                "C.is(C)",
+                "C.canEqual(C)",
+                "C.getProp()",
+                "System:setProperty(String,String)",
+                "C.getProp()",
+                "System:setProperty(String,String)",
+                "String.compareTo(String)",
+                "new C()",
+                "C.hashCode()",
+                "HashCodeHelper:initHash()",
+                // `getProp` is called twice by the generated `hashCode` method. The first call is used to prevent cycles in case it returns `this`.
+                "C.getProp()",
+                "System:setProperty(String,String)",
+                "String.is(C)",
+                "C.getProp()",
+                "System:setProperty(String,String)",
+                "HashCodeHelper:updateHash(Integer,String)");
+    }
+
 }
