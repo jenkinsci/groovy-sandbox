@@ -16,7 +16,7 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <revision>1.26</revision>
+    <revision>1.28</revision>
     <changelist>-SNAPSHOT</changelist>
     <!-- TODO: Move these three properties to the parent POM or use org.jenkins-ci:jenkins as the parent POM here -->
     <incrementals-enforce-minimum.version>1.1</incrementals-enforce-minimum.version>
@@ -109,7 +109,7 @@
     <dependency>
       <groupId>org.codehaus.groovy</groupId>
       <artifactId>groovy</artifactId>
-      <version>2.4.7</version>
+      <version>2.4.21</version> <!-- Note: Do not update past this version unless Jenkins core is updated to use a newer version of Groovy. -->
     </dependency>
     <dependency>
       <groupId>junit</groupId>
@@ -131,13 +131,6 @@
     <url>http://${project.artifactId}.kohsuke.org/</url>
     <tag>${scmTag}</tag>
   </scm>
-
-  <distributionManagement>
-    <site>
-      <id>github-pages</id>
-      <url>gitsite:git@github.com/jenkinsci/${project.artifactId}.git</url>
-    </site>
-  </distributionManagement>
 
   <reporting>
     <plugins>

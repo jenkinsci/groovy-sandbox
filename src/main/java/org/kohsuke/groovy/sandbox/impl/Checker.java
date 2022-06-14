@@ -10,11 +10,14 @@ import groovy.lang.MissingPropertyException;
 
 import java.io.File;
 import java.lang.reflect.Array;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import org.codehaus.groovy.classgen.asm.BinaryExpressionHelper;
+import org.codehaus.groovy.reflection.ParameterTypes;
 import org.codehaus.groovy.runtime.InvokerHelper;
+import org.codehaus.groovy.runtime.MetaClassHelper;
 import org.codehaus.groovy.runtime.ResourceGroovyMethods;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
 import org.codehaus.groovy.runtime.callsite.CallSite;
@@ -194,6 +197,8 @@ public class Checker {
     }
 
     public static Object checkedConstructor(Class _type, Object[] _args) throws Throwable {
+        // Make sure that this is not an illegal call to a synthetic constructor.
+        GroovyCallSiteSelector.findConstructor(_type, _args);
         return new VarArgInvokerChain(_type) {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
                 if (chain.hasNext())
@@ -234,7 +239,10 @@ public class Checker {
         }
     }
 
-    public static SuperConstructorWrapper checkedSuperConstructor(final Class<?> superClass, Object[] args) throws Throwable {
+    public static SuperConstructorWrapper checkedSuperConstructor(Class<?> thisClass, Class<?> superClass, Object[] superCallArgs, Object[] constructorArgs, Class<?>[] constructorParamTypes) throws Throwable {
+        // Make sure that the call to this synthetic constructor is not illegal.
+        GroovyCallSiteSelector.findConstructor(superClass, superCallArgs);
+        explicitConstructorCallSanity(thisClass, SuperConstructorWrapper.class, constructorArgs, constructorParamTypes);
         new VarArgInvokerChain(superClass) {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
                 if (chain.hasNext()) {
@@ -242,8 +250,62 @@ public class Checker {
                 }
                 return null;
             }
-        }.call(superClass, null, fixNull(args));
-        return new SuperConstructorWrapper(args);
+        }.call(superClass, null, fixNull(superCallArgs));
+        return new SuperConstructorWrapper(superCallArgs);
+    }
+
+    public static class ThisConstructorWrapper {
+        private final Object[] args;
+        ThisConstructorWrapper(Object[] args) {
+            this.args = args;
+        }
+        public Object arg(int idx) {
+            return args[idx];
+        }
+    }
+
+    public static ThisConstructorWrapper checkedThisConstructor(final Class<?> clazz, Object[] thisCallArgs, Object[] constructorArgs, Class<?>[] constructorParamTypes) throws Throwable {
+        // Make sure that the call to this synthetic constructor is not illegal.
+        GroovyCallSiteSelector.findConstructor(clazz, thisCallArgs);
+        explicitConstructorCallSanity(clazz, ThisConstructorWrapper.class, constructorArgs, constructorParamTypes);
+        new VarArgInvokerChain(clazz) {
+            public Object call(Object receiver, String method, Object... args) throws Throwable {
+                if (chain.hasNext()) {
+                    chain.next().onNewInstance(this, clazz, args);
+                }
+                return null;
+            }
+        }.call(clazz, null, fixNull(thisCallArgs));
+        return new ThisConstructorWrapper(thisCallArgs);
+    }
+
+    /**
+     * Makes sure that explicit constructor calls inside of synthetic constructors will go to the intended constructor
+     * at runtime (Part of SECURITY-1754).
+     * See {@code SandboxTransformerTest.blocksUnintendedCallsToNonSyntheticConstructors()} for an example of this problem.
+     */
+    private static void explicitConstructorCallSanity(Class<?> thisClass, Class<?> wrapperClass, Object[] argsExcludingWrapper, Class<?>[] paramsIncludingWrapper) {
+        // Construct argument types for the explicit constructor call.
+        Class<?>[] argTypes = new Class<?>[argsExcludingWrapper.length + 1];
+        argTypes[0] = wrapperClass;
+        System.arraycopy(MetaClassHelper.convertToTypeArray(argsExcludingWrapper), 0, argTypes, 1, argsExcludingWrapper.length);
+        // Find the constructor that the sandbox is expecting will be called.
+        Constructor<?> expectedConstructor = null;
+        try {
+            expectedConstructor = thisClass.getDeclaredConstructor(paramsIncludingWrapper);
+        } catch (NoSuchMethodException e) {
+            // The original constructor that made it necessary to create a synthetic constructor should always exist.
+            throw new AssertionError("Unable to find original constructor", e);
+        }
+        ParameterTypes expectedParamTypes = new ParameterTypes(paramsIncludingWrapper);
+        for (Constructor<?> c : thisClass.getDeclaredConstructors()) {
+            // Make sure that no other constructor matches the arguments better than the constructor we are expecting to
+            // call, because otherwise that would be the constructor that would actually be invoked.
+            ParameterTypes cParamTypes = new ParameterTypes(c.getParameterTypes());
+            if (!c.equals(expectedConstructor) && cParamTypes.isValidMethod(argTypes) && GroovyCallSiteSelector.isMoreSpecific(cParamTypes, expectedParamTypes, argTypes)) {
+                throw new SecurityException("Rejecting unexpected invocation of constructor: " + c + ". Expected to invoke synthetic constructor: " + expectedConstructor);
+            }
+        }
     }
 
     public static Object checkedGetProperty(final Object _receiver, boolean safe, boolean spread, Object _property) throws Throwable {
