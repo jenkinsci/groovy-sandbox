@@ -22,6 +22,7 @@ import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import org.codehaus.groovy.classgen.asm.BinaryExpressionHelper;
+import org.codehaus.groovy.classgen.asm.UnaryExpressionHelper;
 import org.codehaus.groovy.reflection.ParameterTypes;
 import org.codehaus.groovy.runtime.InvokerHelper;
 import org.codehaus.groovy.runtime.MetaClassHelper;
@@ -602,7 +603,7 @@ public class Checker {
      * of the {@code DefaultGroovyMethods.bitwiseNegate} overloads.
      *
      * @see UnaryExpressionHelper#writeBitwiseNegate
-     * @see ScriptByteCodeAdapter#bitwiseNegate
+     * @see ScriptBytecodeAdapter#bitwiseNegate
      * @see InvokerHelper#bitwiseNegate
      */
     public static Object checkedBitwiseNegate(Object value) throws Throwable {
