@@ -8,6 +8,7 @@
     <relativePath />
   </parent>
 
+  <groupId>org.kohsuke</groupId>
   <artifactId>groovy-sandbox</artifactId>
   <version>${revision}${changelist}</version>
 
