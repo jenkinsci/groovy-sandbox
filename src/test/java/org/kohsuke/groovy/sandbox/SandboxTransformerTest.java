@@ -37,6 +37,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.codehaus.groovy.control.customizers.ImportCustomizer;
 import org.junit.Before;
@@ -158,20 +159,19 @@ public class SandboxTransformerTest {
     }
 
     /**
-     * Execute a Groovy expression both in and out of the sandbox and check that evaluating the the script throws an
-     * exception with the expected error message.
+     * Execute a Groovy expression both in and out of the sandbox and check that the script throws an exception with
+     * the same class and message in both cases.
      * @param expression The Groovy expression to execute.
-     * @param expectedErrorMessage The expected error message of the exception thrown when the script is evaluated.
      */
-    private void assertFails(String expression, String expectedErrorMessage) {
-        sandboxedEval(expression, ShouldFail.class, e -> {
-            assertThat("Unexpected error evaluating sandboxed expression: " + expression,
-                    e.getMessage(), equalTo(expectedErrorMessage));
-        });
-        unsandboxedEval(expression, ShouldFail.class, e -> {
-            assertThat("Unexpected error evaluating unsandboxed expression: " + expression,
-                    e.getMessage(), equalTo(expectedErrorMessage));
-        });
+    private void assertFailsWithSameException(String expression) {
+        AtomicReference<Exception> sandboxedException = new AtomicReference<>();
+        sandboxedEval(expression, ShouldFail.class, sandboxedException::set);
+        AtomicReference<Exception> unsandboxedException = new AtomicReference<>();
+        unsandboxedEval(expression, ShouldFail.class, unsandboxedException::set);
+        ec.checkThat("Sandboxed and unsandboxed exception should have the same type",
+                unsandboxedException.get().getClass(), equalTo(sandboxedException.get().getClass()));
+        ec.checkThat("Sandboxed and unsandboxed exception should have the same message",
+                unsandboxedException.get().getMessage(), equalTo(sandboxedException.get().getMessage()));
     }
 
     @Issue("SECURITY-1465")
@@ -638,14 +638,14 @@ public class SandboxTransformerTest {
         assertEvaluate("'a'..'ab'", new ObjectRange("a", "ab"));
         assertEvaluate("'ab'..'a'", new ObjectRange("ab", "a"));
         // Checking consistency in error messages.
-        assertFails("'a'..67", "Incompatible Strings for Range: starting String is longer than ending string");
-        assertFails("null..1", "Must specify a non-null value for the 'from' index in a Range");
-        assertFails("1..null", "Must specify a non-null value for the 'to' index in a Range");
-        assertFails("null..null", "Must specify a non-null value for the 'from' index in a Range");
-        assertFails("1..'abc'", "Unable to create range due to incompatible types: Integer..String (possible missing brackets around range?)");
-        assertFails("'abc'..1", "Unable to create range due to incompatible types: String..Integer (possible missing brackets around range?)");
-        assertFails("(new Object())..1", "java.lang.Object cannot be cast to java.lang.Comparable");
-        assertFails("1..(new Object())", "java.lang.Object cannot be cast to java.lang.Comparable");
+        assertFailsWithSameException("'a'..67");
+        assertFailsWithSameException("null..1");
+        assertFailsWithSameException("1..null");
+        assertFailsWithSameException("null..null");
+        assertFailsWithSameException("1..'abc'");
+        assertFailsWithSameException("'abc'..1");
+        assertFailsWithSameException("(new Object())..1");
+        assertFailsWithSameException("1..(new Object())");
     }
 
     private static class OperatorOverloader implements Comparable<OperatorOverloader> {
