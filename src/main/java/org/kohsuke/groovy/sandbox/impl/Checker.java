@@ -789,7 +789,7 @@ public class Checker {
     public static Object checkedComparison(Object lhs, final int op, Object rhs) throws Throwable {
         if (lhs==null) {// bypass the checker if lhs is null, as it will not result in any calls that will require protection anyway
             return InvokerHelper.invokeStaticMethod(ScriptBytecodeAdapter.class,
-                    Ops.binaryOperatorMethods(op), new Object[]{lhs,rhs});
+                    Ops.binaryOperatorMethods(op), new Object[]{null, rhs});
         }
 
         return new SingleArgInvokerChain(lhs) {
