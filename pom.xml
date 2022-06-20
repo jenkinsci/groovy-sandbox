@@ -79,7 +79,7 @@
     <dependency>
       <groupId>org.codehaus.groovy</groupId>
       <artifactId>groovy</artifactId>
-      <version>2.4.21</version> <!-- Note: Do not update past this version unless Jenkins core is updated to use a newer version of Groovy. -->
+      <version>3.0.11</version> <!-- Note: Do not update past this version unless Jenkins core is updated to use a newer version of Groovy. -->
     </dependency>
     <dependency>
       <groupId>junit</groupId>
