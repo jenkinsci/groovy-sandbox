@@ -1,13 +1,11 @@
 package org.kohsuke.groovy.sandbox;
 
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer;
-import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.Parameter;
 import org.codehaus.groovy.ast.Variable;
 import org.codehaus.groovy.ast.expr.BooleanExpression;
-import org.codehaus.groovy.ast.expr.ClosureExpression;
 import org.codehaus.groovy.ast.expr.DeclarationExpression;
 import org.codehaus.groovy.ast.expr.Expression;
 import org.codehaus.groovy.ast.expr.TupleExpression;
@@ -79,9 +77,7 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
         try (StackVariableSet scope = new StackVariableSet(this)) {
             loop.getLoopBlock().visit(this);
         }
-        try (StackVariableSet scope = new StackVariableSet(this)) {
-            loop.setBooleanExpression((BooleanExpression) transform(loop.getBooleanExpression()));
-        }
+        loop.setBooleanExpression((BooleanExpression) transform(loop.getBooleanExpression()));
     }
 
     @Override
@@ -109,16 +105,18 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
 
                 Also see issue 17.
              */
-            declareVariable(forLoop.getVariable());
-            super.visitForLoop(forLoop);
+            if (!ForStatement.FOR_LOOP_DUMMY.equals(forLoop.getVariable())) {
+                // When using Java-style for loops, the 3 expressions are a ClosureListExpression and ForStatement.getVariable is a dummy value that we need to ignore.
+                declareVariable(forLoop.getVariable());
+            }
+            forLoop.setCollectionExpression(transform(forLoop.getCollectionExpression()));
+            forLoop.getLoopBlock().visit(this);
         }
     }
 
     @Override
     public void visitIfElse(IfStatement ifElse) {
-        try (StackVariableSet scope = new StackVariableSet(this)) {
-            ifElse.setBooleanExpression((BooleanExpression)transform(ifElse.getBooleanExpression()));
-        }
+        ifElse.setBooleanExpression((BooleanExpression)transform(ifElse.getBooleanExpression()));
         try (StackVariableSet scope = new StackVariableSet(this)) {
             ifElse.getIfBlock().visit(this);
         }
@@ -136,8 +134,9 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
 
     @Override
     public void visitSynchronizedStatement(SynchronizedStatement sync) {
+        sync.setExpression(transform(sync.getExpression()));
         try (StackVariableSet scope = new StackVariableSet(this)) {
-            super.visitSynchronizedStatement(sync);
+            sync.getCode().visit(this);
         }
     }
 
@@ -158,23 +157,9 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
 
     @Override
     public void visitWhileLoop(WhileStatement loop) {
+        loop.setBooleanExpression((BooleanExpression) transform(loop.getBooleanExpression()));
         try (StackVariableSet scope = new StackVariableSet(this)) {
-            super.visitWhileLoop(loop);
-        }
-    }
-
-    @Override
-    public void visitClosureExpression(ClosureExpression expression) {
-        try (StackVariableSet scope = new StackVariableSet(this)) {
-            Parameter[] parameters = expression.getParameters();
-            if (parameters != null && parameters.length > 0) {
-                for (Parameter p : parameters) {
-                    declareVariable(p);
-                }
-            } else {
-                declareVariable(new Parameter(ClassHelper.DYNAMIC_TYPE, "it"));
-            }
-            super.visitClosureExpression(expression);
+            loop.getLoopBlock().visit(this);
         }
     }
 

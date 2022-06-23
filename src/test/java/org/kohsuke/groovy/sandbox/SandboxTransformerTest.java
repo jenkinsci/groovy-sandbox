@@ -515,21 +515,38 @@ public class SandboxTransformerTest {
                 "HashCodeHelper:updateHash(Integer,String)");
     }
 
-    @Test public void closureVariables() throws Exception {
+    @Test public void closureVariablesInLoopExpressions() throws Exception {
         assertIntercept(
-                "while ([false].stream().noneMatch({s -> s})) {\n" +
+                "for (int x = 0; ({s -> s})(true); x++) {\n" +
                 "    return true\n" +
                 "}\n" +
                 "return false\n",
                 true,
-                "ArrayList.stream()", "ReferencePipeline$Head.noneMatch(Script1$_run_closure1)");
+                "Script1$_run_closure1.call(Boolean)");
         assertIntercept(
-                "while ([false].stream().noneMatch({it})) {\n" +
+                "while (({s -> s})(true)) {\n" +
                 "    return true\n" +
                 "}\n" +
                 "return false\n",
                 true,
-                "ArrayList.stream()", "ReferencePipeline$Head.noneMatch(Script2$_run_closure1)");
+                "Script2$_run_closure1.call(Boolean)");
+        assertIntercept(
+                "while (({it})(true)) {\n" +
+                "    return true\n" +
+                "}\n" +
+                "return false\n",
+                true,
+                "Script3$_run_closure1.call(Boolean)");
+    }
+
+    @Test public void forLoopDummyParameterIsNotDeclared() {
+        // TODO: assertFails
+        sandboxedEval(
+                "for (int i = 0; i < 1; i++) {\n" +
+                "  println(forLoopDummyParameter)\n" +
+                "}\n",
+                ShouldFail.class,
+                e -> ec.checkThat(e.getMessage(), containsString("No such property: forLoopDummyParameter")));
     }
 
 }
