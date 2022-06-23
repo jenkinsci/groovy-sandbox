@@ -6,6 +6,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # groovy version needs to track Jenkins core, see pom.xml.
+      - dependency-name: "org.codehaus.groovy:groovy"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
