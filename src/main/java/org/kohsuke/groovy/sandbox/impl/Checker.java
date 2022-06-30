@@ -659,7 +659,7 @@ public class Checker {
                 // Unchecked cast to Comparable matches the behavior of ScriptBytecodeAdapter.createRange.
                 return checkedConstructor(EmptyRange.class, new Object[] { (Comparable)from });
             }
-            if (checkedComparison(from, Types.COMPARE_GREATER_THAN, to) == Boolean.TRUE) {
+            if (Boolean.TRUE.equals(checkedComparison(from, Types.COMPARE_GREATER_THAN, to))) {
                 to = checkedCall(to, false, false, "next", EMPTY_ARRAY);
             } else {
                 to = checkedCall(to, false, false, "previous", EMPTY_ARRAY);
