@@ -24,6 +24,7 @@ import org.codehaus.groovy.ast.VariableScope;
 import org.codehaus.groovy.ast.expr.ArgumentListExpression;
 import org.codehaus.groovy.ast.expr.ArrayExpression;
 import org.codehaus.groovy.ast.expr.AttributeExpression;
+import org.codehaus.groovy.ast.expr.BitwiseNegationExpression;
 import org.codehaus.groovy.ast.expr.CastExpression;
 import org.codehaus.groovy.ast.expr.ClassExpression;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
@@ -37,8 +38,11 @@ import org.codehaus.groovy.ast.expr.MethodPointerExpression;
 import org.codehaus.groovy.ast.expr.PostfixExpression;
 import org.codehaus.groovy.ast.expr.PrefixExpression;
 import org.codehaus.groovy.ast.expr.PropertyExpression;
+import org.codehaus.groovy.ast.expr.RangeExpression;
 import org.codehaus.groovy.ast.expr.StaticMethodCallExpression;
 import org.codehaus.groovy.ast.expr.TupleExpression;
+import org.codehaus.groovy.ast.expr.UnaryMinusExpression;
+import org.codehaus.groovy.ast.expr.UnaryPlusExpression;
 import org.codehaus.groovy.classgen.GeneratorContext;
 import org.codehaus.groovy.control.CompilePhase;
 import org.codehaus.groovy.control.SourceUnit;
@@ -714,6 +718,29 @@ public class SandboxTransformer extends CompilationCustomizer {
                         boolExp(ce.isCoerce()),
                         boolExp(ce.isStrict())
                 );
+            }
+
+            if (exp instanceof BitwiseNegationExpression) {
+                BitwiseNegationExpression bne = (BitwiseNegationExpression) exp;
+                return makeCheckedCall("checkedBitwiseNegate", transform(bne.getExpression()));
+            }
+
+            if (exp instanceof RangeExpression) {
+                RangeExpression re = (RangeExpression) exp;
+                return makeCheckedCall("checkedCreateRange",
+                        transform(re.getFrom()),
+                        transform(re.getTo()),
+                        boolExp(re.isInclusive()));
+            }
+
+            if (exp instanceof UnaryMinusExpression) {
+                UnaryMinusExpression ume = (UnaryMinusExpression) exp;
+                return makeCheckedCall("checkedUnaryMinus", transform(ume.getExpression()));
+            }
+
+            if (exp instanceof UnaryPlusExpression) {
+                UnaryPlusExpression upe = (UnaryPlusExpression) exp;
+                return makeCheckedCall("checkedUnaryPlus", transform(upe.getExpression()));
             }
 
             return super.transform(exp);
