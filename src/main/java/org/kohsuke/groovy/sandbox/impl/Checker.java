@@ -1,31 +1,42 @@
 package org.kohsuke.groovy.sandbox.impl;
 
 import groovy.lang.Closure;
+import groovy.lang.EmptyRange;
+import groovy.lang.GString;
 import groovy.lang.GroovyRuntimeException;
+import groovy.lang.IntRange;
 import groovy.lang.MetaClass;
 import groovy.lang.MetaClassImpl;
 import groovy.lang.MetaMethod;
 import groovy.lang.MissingMethodException;
 import groovy.lang.MissingPropertyException;
+import groovy.lang.ObjectRange;
 
 import java.io.File;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import org.codehaus.groovy.classgen.asm.BinaryExpressionHelper;
+import org.codehaus.groovy.classgen.asm.UnaryExpressionHelper;
 import org.codehaus.groovy.reflection.ParameterTypes;
 import org.codehaus.groovy.runtime.InvokerHelper;
 import org.codehaus.groovy.runtime.MetaClassHelper;
 import org.codehaus.groovy.runtime.ResourceGroovyMethods;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
+import org.codehaus.groovy.runtime.StringGroovyMethods;
 import org.codehaus.groovy.runtime.callsite.CallSite;
 import org.codehaus.groovy.runtime.callsite.CallSiteArray;
 import org.codehaus.groovy.syntax.Types;
 
+import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +53,8 @@ import static org.kohsuke.groovy.sandbox.impl.ClosureSupport.BUILTIN_PROPERTIES;
  * @author Kohsuke Kawaguchi
  */
 public class Checker {
+    private static final Object[] EMPTY_ARRAY = new Object[0];
+
     /*TODO: specify the proper owner value*/
     private static CallSite fakeCallSite(String method) {
         CallSiteArray csa = new CallSiteArray(Checker.class, new String[]{method});
@@ -90,6 +103,11 @@ public class Checker {
              */
 
             if (_receiver instanceof Class) {
+                Thunk maybeReplacement = findCheckedReplacement((Class<?>)_receiver, _method, _args);
+                if (maybeReplacement != null) {
+                    return maybeReplacement.call();
+                }
+
                 MetaClass mc = getMetaClass((Class) _receiver);
                 if (mc instanceof MetaClassImpl) {
                     MetaClassImpl mci = (MetaClassImpl) mc;
@@ -186,6 +204,11 @@ public class Checker {
     }
 
     public static Object checkedStaticCall(Class _receiver, String _method, Object[] _args) throws Throwable {
+        _args = fixNull(_args);
+        Thunk maybeReplacement = findCheckedReplacement((Class<?>)_receiver, _method, _args);
+        if (maybeReplacement != null) {
+            return maybeReplacement.call();
+        }
         return new VarArgInvokerChain(_receiver) {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
                 if (chain.hasNext())
@@ -193,7 +216,7 @@ public class Checker {
                 else
                     return fakeCallSite(method).callStatic((Class)receiver,args);
             }
-        }.call(_receiver,_method,fixNull(_args));
+        }.call(_receiver, _method, _args);
     }
 
     public static Object checkedConstructor(Class _type, Object[] _args) throws Throwable {
@@ -574,6 +597,194 @@ public class Checker {
     }
 
     /**
+     * Intercepts unary expressions of the form {@code ~value}.
+     *
+     * In Groovy, this operator may result in a call to a method named {@code bitwiseNegate} on the receiver or to one
+     * of the {@code DefaultGroovyMethods.bitwiseNegate} overloads.
+     *
+     * @see UnaryExpressionHelper#writeBitwiseNegate
+     * @see ScriptBytecodeAdapter#bitwiseNegate
+     * @see InvokerHelper#bitwiseNegate
+     */
+    public static Object checkedBitwiseNegate(Object value) throws Throwable {
+        if (value instanceof Integer) {
+            return ~((Integer)value);
+        }
+        if (value instanceof Long) {
+            return ~((Long)value);
+        }
+        if (value instanceof BigInteger) {
+            return checkedCall(value, false, false, "not", new Object[]{});
+        }
+        if (value instanceof String) {
+            // value is a regular expression.
+            return checkedStaticCall(StringGroovyMethods.class, "bitwiseNegate", new Object[]{ value.toString() });
+        }
+        if (value instanceof GString) {
+            // value is a regular expression.
+            return checkedStaticCall(StringGroovyMethods.class, "bitwiseNegate", new Object[]{ value.toString() });
+        }
+        if (value instanceof ArrayList) { // ArrayList is the exact type that Groovy checks in InvokerHelper.bitwiseNegate.
+            // value is a list.
+            List newlist = new ArrayList();
+            for (Object element : ((ArrayList) value)) {
+                newlist.add(checkedBitwiseNegate(element));
+            }
+            return newlist;
+        }
+        return checkedCall(value, false, false, "bitwiseNegate", EMPTY_ARRAY);
+    }
+
+    /**
+     * Intercepts range expressions of the form {@code [x..y]} or {@code [x..<y]}.
+     *
+     * If the from and to expressions are not integers, this operator constructs a {@link ObjectRange}, which involves
+     * calling various methods on the endpoints during the construction of the range and whenever the range is used.
+     * We handle this like we do interfaces in {@link #preCheckedCast} and intercept all of the methods that may be
+     * called before allowing the range to be constructed rather than trying to implement our own range type that is
+     * sandbox-aware.
+     *
+     * @see ScriptBytecodeAdapter#createRange
+     * @see ObjectRange
+     */
+    public static Object checkedCreateRange(Object from, Object to, boolean inclusive) throws Throwable {
+        if (from instanceof Integer && to instanceof Integer) {
+            if (inclusive || from != to) {
+                return checkedConstructor(IntRange.class, new Object[] { inclusive, from, to });
+            }
+            // Fallthrough for EmptyRange
+        }
+        if (!inclusive) {
+            if (Boolean.TRUE.equals(checkedComparison(from, Types.COMPARE_EQUAL, to))) {
+                // Unchecked cast to Comparable matches the behavior of ScriptBytecodeAdapter.createRange.
+                return checkedConstructor(EmptyRange.class, new Object[] { (Comparable)from });
+            }
+            if (Boolean.TRUE.equals(checkedComparison(from, Types.COMPARE_GREATER_THAN, to))) {
+                to = checkedCall(to, false, false, "next", EMPTY_ARRAY);
+            } else {
+                to = checkedCall(to, false, false, "previous", EMPTY_ARRAY);
+            }
+        }
+        // Unlike IntRange and EmptyRange, ObjectRange calls various methods reflectively, so we cannot allow users to
+        // create an ObjectRange directly. Instead, we intercept potential reflective calls and create the range ourselves.
+        interceptRangeMethods((Comparable)from);
+        interceptRangeMethods((Comparable)to);
+        // Unchecked cast to Comparable matches the behavior of ScriptBytecodeAdapter.createRange.
+        return new ObjectRange((Comparable)from, (Comparable)to);
+    }
+
+    /**
+     * {@link ObjectRange} calls various methods on its endpoints internally depending on how it is used.
+     *
+     * Rather than trying to intercept those calls as they happen (by implementing a sandbox-aware {@link ObjectRange} subclass),
+     * we intercept all of the possible calls that might be made before we even create the range.
+     */
+    private static void interceptRangeMethods(Comparable value) throws Throwable {
+        if (value == null) {
+            return;
+        }
+        for (String method : new String[] { "compareTo", "next", "previous" }) {
+            Object[] args = new Object[0];
+            if (method.equals("compareTo")) {
+                args = new Object[]{ null };
+            }
+            new VarArgInvokerChain(value) {
+                public Object call(Object receiver, String method, Object... args) throws Throwable {
+                    if (chain.hasNext()) {
+                        return chain.next().onMethodCall(this, receiver, method, args);
+                    } else {
+                        return null;
+                    }
+                }
+            }.call(value, method, args);
+        }
+    }
+
+    /**
+     * Intercepts unary expressions of the form {@code -value}.
+     *
+     * In Groovy, this operator may result in a call to a method named {@code negative} on the receiver or to one
+     * of the {@code DefaultGroovyMethods.unaryMinus} overloads.
+     *
+     * @see UnaryExpressionHelper#writeUnaryMinus
+     * @see ScriptBytecodeAdapter#unaryMinus
+     * @see InvokerHelper#unaryMinus
+     */
+    public static Object checkedUnaryMinus(Object value) throws Throwable {
+        if (value instanceof Integer) {
+            Integer number = (Integer) value;
+            return -number;
+        }
+        if (value instanceof Long) {
+            Long number = (Long) value;
+            return -number;
+        }
+        if (value instanceof BigInteger) {
+            return checkedCall(value, false, false, "negate", new Object[]{});
+        }
+        if (value instanceof BigDecimal) {
+            return checkedCall(value, false, false, "negate", new Object[]{});
+        }
+        if (value instanceof Double) {
+            Double number = (Double) value;
+            return -number;
+        }
+        if (value instanceof Float) {
+            Float number = (Float) value;
+            return -number;
+        }
+        if (value instanceof Short) {
+            Short number = (Short) value;
+            return (short) -number;
+        }
+        if (value instanceof Byte) {
+            Byte number = (Byte) value;
+            return (byte) -number;
+        }
+        if (value instanceof ArrayList) { // ArrayList is the exact type that Groovy checks in InvokerHelper.unaryMinus.
+            // value is a list.
+            List newlist = new ArrayList();
+            for (Object element : ((ArrayList) value)) {
+                newlist.add(checkedUnaryMinus(element));
+            }
+            return newlist;
+        }
+        return checkedCall(value, false, false, "negative", EMPTY_ARRAY);
+    }
+
+    /**
+     * Intercepts unary expressions of the form {@code +value}.
+     *
+     * In Groovy, this operator may result in a call to a method named {@code positive} on the receiver or to one
+     * of the {@code DefaultGroovyMethods.unaryMinus} overloads.
+     *
+     * @see UnaryExpressionHelper#writeUnaryPlus
+     * @see ScriptBytecodeAdapter#unaryPlus
+     * @see InvokerHelper#unaryPlus
+     */
+    public static Object checkedUnaryPlus(Object value) throws Throwable {
+        if (value instanceof Integer ||
+                value instanceof Long ||
+                value instanceof BigInteger ||
+                value instanceof BigDecimal ||
+                value instanceof Double ||
+                value instanceof Float ||
+                value instanceof Short ||
+                value instanceof Byte) {
+            return value;
+        }
+        if (value instanceof ArrayList) { // ArrayList is the exact type that Groovy checks in InvokerHelper.unaryPlus.
+            // value is a list.
+            List newlist = new ArrayList();
+            for (Object element : ((ArrayList) value)) {
+                newlist.add(checkedUnaryPlus(element));
+            }
+            return newlist;
+        }
+        return checkedCall(value, false, false, "positive", EMPTY_ARRAY);
+    }
+
+    /**
      * A compare method that invokes a.equals(b) or a.compareTo(b)==0
      */
     public static Object checkedComparison(Object lhs, final int op, Object rhs) throws Throwable {
@@ -745,5 +956,57 @@ public class Checker {
         }
         // TODO: Are there any other packages with collections that we should allow?
         return "java.util".equals(packageName);
+    }
+
+    /**
+     * Look in {@link #GROOVY_RUNTIME_REPLACEMENTS} to see if {@link Checker} defines a checked equivalent of the given
+     * method, and if so, return a {@link Thunk} that will invoke the checked method rather than the original.
+     *
+     * <p>Groovy uses runtime APIs (e.g. {@link ScriptByteCodeAdapter}) to support various standard language features
+     * such as unary operators. Some of these APIs invoke methods reflectively based on the runtime types of arguments,
+     * which the sandbox does not see and so it cannot intercept those calls. We define sandbox-aware replacements for
+     * these methods so that these reflective calls can be intercepted.
+     * <p>When using groovy-sandbox through script-security without groovy-cps, these replacements only take effect if
+     * a script directly calls one of the original methods. When using groovy-cps, these replacements also take effect
+     * when their corresponding AST nodes (e.g. unary operators) are used.
+     */
+    private static Thunk findCheckedReplacement(Class<?> clazz, String method, Object[] args) {
+        Method maybeReplacement = GROOVY_RUNTIME_REPLACEMENTS.get(new SimpleImmutableEntry(clazz, method));
+        if (maybeReplacement == null) {
+            return null;
+        }
+        ParameterTypes parameterTypes = new ParameterTypes(maybeReplacement.getParameterTypes());
+        if (!parameterTypes.isValidExactMethod(args)) {
+            return null;
+        }
+        return () -> {
+            try {
+                return maybeReplacement.invoke(null, args);
+            } catch (InvocationTargetException e) {
+                throw e.getCause(); // e.g. CpsCallableInvocation
+            }
+        };
+    }
+
+    /**
+     * A map from Groovy methods to checked replacements that will be used instead when the sandbox is active.
+     */
+    private static final HashMap<Map.Entry<Class<?>, String>, Method> GROOVY_RUNTIME_REPLACEMENTS = new HashMap<>();
+    static {
+        addReplacement(InvokerHelper.class, "bitwiseNegate", "checkedBitwiseNegate", Object.class);
+        addReplacement(InvokerHelper.class, "unaryMinus", "checkedUnaryMinus", Object.class);
+        addReplacement(InvokerHelper.class, "unaryPlus", "checkedUnaryPlus", Object.class);
+        addReplacement(ScriptBytecodeAdapter.class, "bitwiseNegate", "checkedBitwiseNegate", Object.class);
+        addReplacement(ScriptBytecodeAdapter.class, "unaryMinus", "checkedUnaryMinus", Object.class);
+        addReplacement(ScriptBytecodeAdapter.class, "unaryPlus", "checkedUnaryPlus", Object.class);
+        addReplacement(ScriptBytecodeAdapter.class, "createRange", "checkedCreateRange", Object.class, Object.class, boolean.class);
+    }
+
+    private static void addReplacement(Class<?> clazz, String name, String checkedName, Class<?>... parameterTypes) {
+        try {
+            GROOVY_RUNTIME_REPLACEMENTS.put(new SimpleImmutableEntry(clazz, name), Checker.class.getDeclaredMethod(checkedName, parameterTypes));
+        } catch (NoSuchMethodException e) {
+            throw new AssertionError(e); // Developer error.
+        }
     }
 }

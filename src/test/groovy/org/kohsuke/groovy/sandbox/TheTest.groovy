@@ -578,6 +578,7 @@ Exception.message
     void testIssue17() {
         assertIntercept(
         [
+            'new IntRange(Boolean,Integer,Integer)',
         ],45,"""
             def x = 0;
             for ( i in 0..9 ) {
