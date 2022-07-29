@@ -107,41 +107,31 @@ public class GroovyCallSiteSelector {
      * specifically to be able to intercept calls to super in constructors.
      */
     private static boolean isSyntheticConstructor(Constructor<?> c) {
-        for (Class<?> parameterType : c.getParameterTypes()) {
-            for (Class<?> syntheticParamType : SYNTHETIC_CONSTRUCTOR_PARAMETER_TYPES) {
-                if (parameterType == syntheticParamType) {
-                    return true;
-                }
+        Class<?>[] parameterTypes = c.getParameterTypes();
+        if (parameterTypes.length == 0) {
+            return false;
+        }
+        // If this is a generated constructor, its first parameter is one of the wrapper types.
+        Class<?> parameterType = parameterTypes[0];
+        for (Class<?> syntheticParamType : SYNTHETIC_CONSTRUCTOR_PARAMETER_TYPES) {
+            if (syntheticParamType == parameterType) {
+                return true;
             }
         }
         return false;
     }
 
     private static boolean isIllegalCallToSyntheticConstructor(Constructor<?> c, Object[] args) {
-        Class<?>[] parameterTypes = c.getParameterTypes();
-        for (int i = 0; i < parameterTypes.length; i++) {
-            Class<?> parameterType = parameterTypes[i];
-            if (c.isVarArgs() && i == parameterTypes.length - 1) {
-                // If this is a vararags constructor, there can be 0 or more arguments for the final parameter.
-                for (int j = i; j < args.length; j++) {
-                    Object arg = args[j];
-                    if (isIllegalArgumentForSyntheticParameter(parameterType, arg)) {
-                        return true;
-                    }
-                }
-            } else {
-                Object arg = args[i];
-                if (isIllegalArgumentForSyntheticParameter(parameterType, arg)) {
-                    return true;
-                }
-            }
+        if (!isSyntheticConstructor(c)) {
+            return false;
         }
-        return false;
-    }
-
-    private static boolean isIllegalArgumentForSyntheticParameter(Class<?> parameterType, Object arg) {
+        Class<?> parameterType = c.getParameterTypes()[0];
+        if (args.length == 0) {
+            return true;
+        }
+        Object arg = args[0];
         for (Class<?> syntheticParamType : SYNTHETIC_CONSTRUCTOR_PARAMETER_TYPES) {
-            // Using explicit equality checks instead of `instanceOf` to disallow subclasses of SuperConstructorWrapper and ThisConstructorWrapper.
+            // We check equality instead of `instanceOf` to disallow subclasses of SuperConstructorWrapper and ThisConstructorWrapper.
             if (parameterType == syntheticParamType && (arg == null || arg.getClass() != syntheticParamType)) {
                 return true;
             }
