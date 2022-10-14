@@ -34,7 +34,7 @@ public class GroovyCallSiteSelectorTest {
 
     @Test public void missingConstructor() {
         try {
-            GroovyCallSiteSelector.findConstructor(GroovyCallSiteSelectorTest.class, new Object[]{ 1, 'a' });
+            GroovyCallSiteSelector.findConstructor(GroovyCallSiteSelectorTest.class, new Object[]{ 1, 'a' }, null);
             fail("Constructor should not have been found");
         } catch (SecurityException e) {
             assertThat(e.getMessage(), equalTo("Unable to find constructor: new org.kohsuke.groovy.sandbox.impl.GroovyCallSiteSelectorTest java.lang.Integer java.lang.Character"));

@@ -29,18 +29,24 @@ import groovy.lang.EmptyRange;
 import groovy.lang.GroovyShell;
 import groovy.lang.IntRange;
 import groovy.lang.ObjectRange;
+import java.io.File;
+import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.codehaus.groovy.control.customizers.ImportCustomizer;
+import org.codehaus.groovy.runtime.ProxyGeneratorAdapter;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ErrorCollector;
@@ -50,8 +56,8 @@ import org.kohsuke.groovy.sandbox.impl.GroovyCallSiteSelector;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
 public class SandboxTransformerTest {
@@ -140,7 +146,19 @@ public class SandboxTransformerTest {
      */
     private void assertIntercept(String expression, Object expectedReturnValue, String... expectedCalls) {
         assertEvaluate(expression, expectedReturnValue);
-        ec.checkThat(cr.toString().split("\n"), equalTo(expectedCalls));
+        assertIntercepted(expectedCalls);
+    }
+
+    /**
+     * Check that the most recently executed expression intercepted the expected calls.
+     * @param expectedCalls The method calls that were expected to be intercepted by the sandbox.
+     */
+    private void assertIntercepted(String... expectedCalls) {
+        String[] interceptedCalls = cr.toString().split("\n");
+        if (interceptedCalls.length == 1 && interceptedCalls[0].equals("")) {
+            interceptedCalls = new String[0];
+        }
+        ec.checkThat(interceptedCalls, equalTo(expectedCalls));
     }
 
     /**
@@ -168,6 +186,9 @@ public class SandboxTransformerTest {
         sandboxedEval(expression, ShouldFail.class, sandboxedException::set);
         AtomicReference<Exception> unsandboxedException = new AtomicReference<>();
         unsandboxedEval(expression, ShouldFail.class, unsandboxedException::set);
+        if (sandboxedException.get() == null || unsandboxedException.get() == null) {
+            return; // Either sandboxedEval or unsandboxedEval will have already recorded an error because the result was not ShouldFail.
+        }
         ec.checkThat("Sandboxed and unsandboxed exception should have the same type",
                 unsandboxedException.get().getClass(), equalTo(sandboxedException.get().getClass()));
         ec.checkThat("Sandboxed and unsandboxed exception should have the same message",
@@ -379,6 +400,7 @@ public class SandboxTransformerTest {
                 true,
                 "new A()",
                 "System:getProperties()",
+                "new A(Properties)",
                 "new B()");
     }
 
@@ -407,7 +429,7 @@ public class SandboxTransformerTest {
                 "new Superclass()");
     }
 
-    @Issue("SECURITY-1754")
+    @Issue({ "SECURITY-1754", "SECURITY-2824" })
     @Test public void blocksDirectCallsToSyntheticConstructors() throws Exception {
         sandboxedEval(
                 "class Superclass { }\n" +
@@ -419,6 +441,23 @@ public class SandboxTransformerTest {
                 e -> assertThat(e.getMessage(), equalTo(
                         "Rejecting illegal call to synthetic constructor: private Subclass(org.kohsuke.groovy.sandbox.impl.Checker$SuperConstructorWrapper). " +
                         "Perhaps you meant to use one of these constructors instead: public Subclass()")));
+        // Calls are blocked even if you manage to obtain a valid wrapper.
+        sandboxedEval(
+                "class Superclass { Superclass(String x) { } }\n" +
+                "class Subclass extends Superclass {\n" +
+                "  def wrapper\n" +
+                "  Subclass() { super('secret.key'); def $cw = $cw; wrapper = $cw }\n" +
+                "}\n" +
+                "def wrapper = new Subclass().wrapper\n" +
+                "class MyFile extends File {\n" +
+                "  MyFile(String path) {\n" +
+                "    super(path)\n" +
+                "  }\n" +
+                "}\n" +
+                "new MyFile(wrapper, 'unused')",
+                ShouldFail.class,
+                e -> assertThat(e.getMessage(), equalTo("Rejecting illegal call to synthetic constructor: private MyFile(org.kohsuke.groovy.sandbox.impl.Checker$SuperConstructorWrapper,java.lang.String). " +
+                        "Perhaps you meant to use one of these constructors instead: public MyFile(java.lang.String)")));
     }
 
     @Issue("SECURITY-1754")
@@ -687,6 +726,349 @@ public class SandboxTransformerTest {
             auditLog.add("previous");
             return new OperatorOverloader(auditLog, value - 1);
         }
+    }
+
+    @Issue("SECURITY-2824")
+    @Test
+    public void sandboxInterceptsImplicitCastsMethodReturnValues() {
+        assertIntercept(
+                "File createFile(String path) {\n" +
+                "  [path]\n" +
+                "}\n" +
+                "createFile('secret.key')\n",
+                new File("secret.key"),
+                "Script1.createFile(String)",
+                "new File(String)");
+        assertIntercept(
+                "File createFile(String path) {\n" +
+                "  return [path]\n" +
+                "}\n" +
+                "createFile('secret.key')\n",
+                new File("secret.key"),
+                "Script2.createFile(String)",
+                "new File(String)");
+    }
+
+    @Issue("SECURITY-2824")
+    @Test
+    public void sandboxInterceptsImplicitCastsVariableAssignment() {
+        assertIntercept(
+                "File file\n" +
+                "file = ['secret.key']\n " +
+                "file",
+                new File("secret.key"),
+                "new File(String)");
+    }
+
+    // https://github.com/jenkinsci/groovy-sandbox/issues/7 would allow these casts to be intercepted here, but for now,
+    // we handle them in script-security's SandboxInterceptor
+    @Ignore("These casts cannot be intercepted by groovy-sandbox itself without extensive modifications")
+    @Issue("SECURITY-2824")
+    @Test
+    public void sandboxInterceptsImplicitCastsPropertyAndAttributeAssignment() {
+        assertIntercept(
+                "class Test {\n" +
+                "  File file\n" +
+                "}\n" +
+                "def t = new Test()\n" +
+                "t.file = ['secret1.key']\n " +
+                "def temp = t.file\n" +
+                "t.@file = ['secret2.key']\n " +
+                "[temp, t.@file]\n",
+                Arrays.asList(new File("secret1.key"), new File("secret2.key")),
+                "new Test()",
+                "new File(String)",
+                "Test.file=File",
+                "Test.file",
+                "new File(String)",
+                "Test.@file=File",
+                "Test.@file");
+    }
+
+    @Issue("SECURITY-2824")
+    @Test
+    public void sandboxInterceptsImplicitCastsPropertyAssignmentThisField() {
+        assertIntercept(
+                "class Test {\n" +
+                "  File file\n" +
+                "  def setFile(String path) {\n" +
+                "    this.file = [path]\n" + // This form of property access is handled as a special case in SandboxTransformer
+                "  }\n" +
+                "}\n" +
+                "def t = new Test()\n" +
+                "t.setFile('secret.key')\n " +
+                "t.file",
+                new File("secret.key"),
+                "new Test()",
+                "Test.setFile(String)",
+                "new File(String)",
+                "Test.file");
+    }
+
+    @Issue("SECURITY-2824")
+    @Test
+    public void sandboxInterceptsImplicitCastsArrayAssignment() {
+        // Regular Groovy casts the rhs of array assignments to match the component type of the array, but the
+        // sandbox does not do this. Ideally the sandbox would have the same behavior as regular Groovy, but the
+        // current behavior is safe, which is good enough.
+        sandboxedEval(
+                "File[] files = [null]\n" +
+                "files[0] = ['secret.key']\n" +
+                "files[0]",
+                ShouldFail.class,
+                e -> ec.checkThat(e.toString(), equalTo("java.lang.ArrayStoreException: java.util.ArrayList")));
+    }
+
+    @Issue("SECURITY-2824")
+    @Test
+    public void sandboxInterceptsImplicitCastsInitialParameterExpressions() {
+        assertIntercept(
+                "def method(File file = ['secret.key']) { file }; method()",
+                new File("secret.key"),
+                "Script1.method()",
+                "new File(String)",
+                "Script1.method(File)");
+        assertIntercept(
+                "({ File file = ['secret.key'] -> file })()",
+                new File("secret.key"),
+                "Script2$_run_closure1.call()",
+                "new File(String)");
+        assertIntercept(
+                "class Test {\n" +
+                "  def x\n" +
+                "  Test(File file = ['secret.key']) {\n" +
+                "   x = file\n" +
+                "  }\n" +
+                "}\n" +
+                "new Test().x",
+                new File("secret.key"),
+                "new Test()",
+                "new File(String)",
+                "Test.x");
+    }
+
+    @Issue("SECURITY-2824")
+    @Test
+    public void sandboxInterceptsImplicitCastsFields() {
+        assertIntercept(
+                "class Test {\n" +
+                "  File file = ['secret.key']\n" +
+                "}\n" +
+                "new Test().file",
+                new File("secret.key"),
+                "new Test()",
+                "new File(String)",
+                "Test.file");
+        assertIntercept(
+                "@groovy.transform.Field File file = ['secret.key']\n" +
+                "file",
+                new File("secret.key"),
+                "new File(String)",
+                "Script2.file");
+    }
+
+    @Issue("SECURITY-2824")
+    @Test
+    public void sandboxInterceptsElementCastsInArrayCasts() {
+        assertIntercept(
+                "([['secret.key']] as File[])[0]",
+                new File("secret.key"),
+                "new File(String)",
+                "File[][Integer]");
+        assertIntercept(
+                "(([['secret.key']] as Object[]) as File[])[0]",
+                new File("secret.key"),
+                "new File(String)",
+                "File[][Integer]");
+        assertIntercept(
+                "((File[])[['secret.key']])[0]",
+                new File("secret.key"),
+                "new File(String)",
+                "File[][Integer]");
+        assertIntercept(
+                "((File[])((Object[])[['secret.key']]))[0]",
+                new File("secret.key"),
+                "new File(String)",
+                "File[][Integer]");
+        assertIntercept(
+                "([[['secret.key']]] as File[][])[0][0]",
+                new File("secret.key"),
+                "new File(String)",
+                "File[][][Integer]",
+                "File[][Integer]");
+    }
+
+    @Issue("SECURITY-2824")
+    @Test
+    public void sandboxUsesCastToTypeForImplicitCasts() {
+        assertIntercept(
+                "class Test {\n" +
+                "  def auditLog = []\n" +
+                "  def asType(Class c) {\n" +
+                "    auditLog.add('asType')\n" +
+                "    'Test.asType'\n" +
+                "  }\n" +
+                "  String toString() {\n" +
+                "    auditLog.add('toString')\n" +
+                "    'Test.toString'\n" +
+                "  }\n" +
+                "}\n" +
+                "def t = new Test()\n" +
+                "String methodReturnValue(def o) { o }\n" +
+                "methodReturnValue(t)\n" +
+                "String variable = t\n" +
+                "String[] array = [t]\n" +
+                "(String)t\n" +
+                "t as String\n" + // This is the only cast that should call asType.
+                "t.auditLog\n",
+                Arrays.asList("toString", "toString", "toString", "toString", "asType"),
+                "new Test()",
+                "Script1.methodReturnValue(Test)",
+                "Test.auditLog",
+                "ArrayList.add(String)",
+                "Test.auditLog",
+                "ArrayList.add(String)",
+                "Test.auditLog",
+                "ArrayList.add(String)",
+                "Test.auditLog",
+                "ArrayList.add(String)",
+                "Test.auditLog",
+                "ArrayList.add(String)",
+                "Test.auditLog");
+    }
+
+    @Test
+    public void sandboxInterceptsAttributeExpressionsInPrefixPostfixOps() {
+        assertIntercept(
+                "class Test { int x }\n" +
+                "def t = new Test()\n" +
+                "t.@x++\n" +
+                "t.@x\n",
+                1,
+                "new Test()", "Test.@x", "Integer.next()", "Test.@x=Integer", "Test.@x");
+    }
+
+    @Test
+    public void sandboxInterceptsEnums() {
+        assertIntercept(
+                "enum Test { FIRST, SECOND }\n" +
+                "Test.FIRST.toString()\n",
+                "FIRST",
+                // Enum classes are generated before SandboxTransformer runs, so various synthetic constructs are
+                // (unnecessarily?) intercepted if you do not define an explicit constructor.
+                "Class.FIRST",
+                "Test:$INIT(String,Integer)",
+                "new LinkedHashMap()",
+                "new Test(String,Integer,LinkedHashMap)",
+                "new Enum(String,Integer)",
+                "LinkedHashMap.equals(null)",
+                "ImmutableASTTransformation:checkPropNames(Test,LinkedHashMap)",
+                "Test:$INIT(String,Integer)",
+                "new LinkedHashMap()",
+                "new Test(String,Integer,LinkedHashMap)",
+                "new Enum(String,Integer)",
+                "LinkedHashMap.equals(null)",
+                "ImmutableASTTransformation:checkPropNames(Test,LinkedHashMap)",
+                "Class.@FIRST",
+                "Class.@SECOND",
+                "Class.@FIRST",
+                "Class.@SECOND",
+                "Test.toString()");
+        assertIntercept(
+                "enum Test { FIRST(), SECOND(); Test() {} }\n" +
+                "Test.FIRST.toString()\n",
+                "FIRST",
+                // You can define an explicit constructor to simplify the generated code.
+                "Class.FIRST",
+                "Test:$INIT(String,Integer)",
+                "new Enum(String,Integer)",
+                "Test:$INIT(String,Integer)",
+                "new Enum(String,Integer)",
+                "Class.@FIRST",
+                "Class.@SECOND",
+                "Class.@FIRST",
+                "Class.@SECOND",
+                "Test.toString()");
+    }
+
+    @Test
+    public void sandboxInterceptsBooleanCasts() {
+        assertIntercept("null as Boolean", null);
+        assertIntercept("true as Boolean", true);
+        assertIntercept("[:] as Boolean", false,
+                "LinkedHashMap.asBoolean()");
+        assertIntercept("[] as Boolean", false,
+                "ArrayList.asBoolean()");
+        assertIntercept("[false] as Boolean", true,
+                "ArrayList.asBoolean()");
+        assertIntercept("new Object() as Boolean", true,
+                "new Object()",
+                "Object.asBoolean()");
+        assertIntercept("new Object() { boolean asBoolean() { false } } as Boolean", false,
+                "new Script7$1(Script7)",
+                "Script7$1.@this$0=Script7",
+                "Script7$1.asBoolean()");
+    }
+
+    @Test
+    public void sandboxAllowsBoxedPrimitiveCasts() {
+        assertIntercept("1.0 as Integer", 1);
+        assertFailsWithSameException("[] as Integer");
+        assertIntercepted();
+        assertFailsWithSameException("[] as int");
+        assertIntercepted();
+        assertIntercept("1 as Double", 1.0);
+        assertFailsWithSameException("[] as Double");
+        assertIntercepted();
+        assertFailsWithSameException("[] as double");
+        assertIntercepted();
+        assertIntercept("'test' as Character", 't');
+        assertFailsWithSameException("[] as Character");
+        assertIntercepted();
+        assertFailsWithSameException("[] as char");
+        assertIntercepted();
+        assertIntercept("1 as String", "1");
+        assertIntercept("[] as String", "[]");
+    }
+
+    @Test
+    public void sandboxInterceptsCastsToAbstractClasses() throws Throwable {
+        // Other tests that generate proxy classes will increment the counter.
+        // TODO: Could flake if tests are configured to run in parallel in the same JVM.
+        Field pxyCounterField = ProxyGeneratorAdapter.class.getDeclaredField("pxyCounter");
+        pxyCounterField.setAccessible(true);
+        AtomicLong pxyCounter = (AtomicLong) pxyCounterField.get(null);
+        long counter = pxyCounter.get() + 1;
+        assertIntercept(
+                "def proxy = { -> 'overridden' } as org.kohsuke.groovy.sandbox.SandboxTransformerTest.AbstractClass\n" +
+                "[proxy.get(), proxy.get2()]",
+                Arrays.asList("overridden", "overridden"),
+                "new SandboxTransformerTest$AbstractClass()",
+                "SandboxTransformerTest$AbstractClass" + counter + "_groovyProxy.get()",
+                "SandboxTransformerTest$AbstractClass" + counter + "_groovyProxy.get2()");
+        counter = pxyCounter.get() + 1;
+        assertIntercept(
+                "def proxy = ['get': { -> 'overridden' }] as org.kohsuke.groovy.sandbox.SandboxTransformerTest.AbstractClass\n" +
+                "[proxy.get(), proxy.get2()]",
+                Arrays.asList("overridden", "default"),
+                "new SandboxTransformerTest$AbstractClass()",
+                "SandboxTransformerTest$AbstractClass" + counter + "_groovyProxy.get()",
+                "SandboxTransformerTest$AbstractClass" + counter + "_groovyProxy.get2()");
+    }
+
+    public static abstract class AbstractClass {
+        public abstract Object get();
+        public Object get2() {
+            return "default";
+        }
+        public abstract void thisMethodExistsToAvoidCodePathsForSingleAbstractMethodClasses();
+    }
+
+    @Test
+    public void sandboxDoesNotMutateReturnStatementConstant() {
+        sandboxedEval("", null, null);
+        sandboxedEval("", null, null);
+        unsandboxedEval("", null, ec::addError);
     }
 
 }

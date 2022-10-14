@@ -262,9 +262,9 @@ point==point
 """)
     }
 
-    void testNestedClass() {
+    void testAnonymousClass() {
         assertIntercept(
-                "new Script1\$1(Script1)/Script1\$1.plusOne(Integer)/Integer.plus(Integer)",
+                "new Script1\$1(Script1)/Script1\$1.@this\$0=Script1/Script1\$1.plusOne(Integer)/Integer.plus(Integer)",
                 6,
 """
 def x = new Object() {
