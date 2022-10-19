@@ -414,7 +414,9 @@ public class SandboxTransformer extends CompilationCustomizer {
         @Override
         public void visitField(FieldNode node) {
             super.visitField(node);
-            if (node.hasInitialExpression()) {
+            // When using @Field with a declaration that has no default value, node.getInitialExpression is an
+            // EmptyExpression rather than null, so we must ignore it to avoid breaking things.
+            if (node.hasInitialExpression() && !(node.getInitialValueExpression() instanceof EmptyExpression)) {
                 // node.getInitialValueExpression has already been transformed by the super call, so we do not transform it twice.
                 node.setInitialValueExpression(makeCheckedGroovyCast(node.getType(), node.getInitialValueExpression()));
             }
@@ -1014,6 +1016,9 @@ public class SandboxTransformer extends CompilationCustomizer {
         if (exp.getType().isDerivedFrom(type) || exp.getType().implementsInterface(type)) {
             return true;
         } else if (exp instanceof ConstantExpression && ((ConstantExpression)exp).isNullExpression()) {
+            return true;
+        } else if (exp instanceof EmptyExpression) {
+            // If we get here, something has already gone wrong, and inserting a checked cast would make things even worse.
             return true;
         }
         return false;

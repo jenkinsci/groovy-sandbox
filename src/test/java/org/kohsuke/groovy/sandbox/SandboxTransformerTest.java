@@ -87,7 +87,7 @@ public class SandboxTransformerTest {
 
     @FunctionalInterface
     public interface ExceptionHandler {
-        public void handleException(Exception e) throws Exception;
+        public void handleException(Throwable e) throws Exception;
     }
 
     /**
@@ -103,7 +103,7 @@ public class SandboxTransformerTest {
             String actualType = GroovyCallSiteSelector.getName(actual);
             String expectedType = GroovyCallSiteSelector.getName(expectedResult);
             ec.checkThat("Sandboxed result (" + actualType + ") does not match expected result (" + expectedType + ")", actual, equalTo(expectedResult));
-        } catch (Exception e) {
+        } catch (Throwable e) {
             ec.checkSucceeds(() -> {
                 try {
                     handler.handleException(e);
@@ -182,9 +182,9 @@ public class SandboxTransformerTest {
      * @param expression The Groovy expression to execute.
      */
     private void assertFailsWithSameException(String expression) {
-        AtomicReference<Exception> sandboxedException = new AtomicReference<>();
+        AtomicReference<Throwable> sandboxedException = new AtomicReference<>();
         sandboxedEval(expression, ShouldFail.class, sandboxedException::set);
-        AtomicReference<Exception> unsandboxedException = new AtomicReference<>();
+        AtomicReference<Throwable> unsandboxedException = new AtomicReference<>();
         unsandboxedEval(expression, ShouldFail.class, unsandboxedException::set);
         if (sandboxedException.get() == null || unsandboxedException.get() == null) {
             return; // Either sandboxedEval or unsandboxedEval will have already recorded an error because the result was not ShouldFail.
@@ -1069,6 +1069,13 @@ public class SandboxTransformerTest {
         sandboxedEval("", null, null);
         sandboxedEval("", null, null);
         unsandboxedEval("", null, ec::addError);
+    }
+
+    @Issue("JENKINS-69899")
+    @Test
+    public void sandboxDoesNotCastEmptyExpression() {
+        assertIntercept("@groovy.transform.Field String x", null);
+        assertIntercept("@groovy.transform.Field String x; x = null", null);
     }
 
 }
