@@ -46,8 +46,6 @@ public class NoSystemExitTest extends TestCase {
         assertFail("System.exit(-1)==System.exit(-1)");
         assertFail("def x=System.&exit; x(-1)");
 
-        System.out.println("Look ma, I'm still alive");
-
         // but this should be OK
         eval("System.getProperty('abc')");
     }

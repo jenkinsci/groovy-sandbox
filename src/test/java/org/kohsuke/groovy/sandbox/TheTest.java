@@ -290,9 +290,9 @@ public class TheTest {
     }
 
     @Test public void testIssue2() throws Exception {
-        assertIntercept("new HashMap()/HashMap.get(String)/Script1.println(null)",null,"println(new HashMap().dummy);");
-        assertIntercept("Script2.println()",null,"println();");
-        assertIntercept("Script3.println(null)",null,"println(null);");
+        assertIntercept("new HashMap()/HashMap.get(String)/Script1.nop(null)",null,"def nop(v) { }; nop(new HashMap().dummy);");
+        assertIntercept("Script2.nop()",null,"def nop() { }; nop();");
+        assertIntercept("Script3.nop(null)",null,"def nop(v) { }; nop(null);");
     }
 
     @Test public void testSystemExitAsFunction() throws Exception {
@@ -716,7 +716,7 @@ public class TheTest {
      * accordingly.
      */
     @Test public void testMapPropertyAccess() throws Exception {
-        assertIntercept("new HashMap()/HashMap.get(String)/Script1.println(null)",null,"println(new HashMap().dummy);");
+        assertIntercept("new HashMap()/HashMap.get(String)",null,"new HashMap().dummy;");
         assertIntercept("new HashMap()/HashMap.put(String,Integer)",5,"new HashMap().dummy=5");
     }
 
