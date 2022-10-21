@@ -41,20 +41,6 @@
   <build>
     <plugins>
       <plugin>
-        <groupId>org.codehaus.gmavenplus</groupId>
-        <artifactId>gmavenplus-plugin</artifactId>
-        <version>2.0.0</version>
-        <executions>
-          <execution>
-            <goals>
-              <goal>addTestSources</goal>
-              <goal>generateTestStubs</goal>
-              <goal>compileTests</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
         <artifactId>maven-jar-plugin</artifactId>
         <executions>
           <execution>
