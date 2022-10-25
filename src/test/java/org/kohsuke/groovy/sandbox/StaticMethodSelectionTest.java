@@ -1,15 +1,17 @@
-package org.kohsuke.groovy.sandbox
+package org.kohsuke.groovy.sandbox;
 
-import junit.framework.TestCase
+import groovy.lang.GroovyShell;
+import static org.junit.Assert.fail;
+import org.junit.Test;
 
 /**
  *
  *
  * @author Kohsuke Kawaguchi
  */
-class StaticMethodSelectionTest extends TestCase {
+public class StaticMethodSelectionTest {
 
-    public static void strangeThirdSelection(Class x,Class y) {
+    public static void strangeThirdSelection(Class x, Class y) {
         fail("I'm expecting this method not to be invoked");
     }
 
@@ -57,12 +59,13 @@ class StaticMethodSelectionTest extends TestCase {
         }
 
      */
-    void testStrangeThirdSelection() {
+    @Test
+    public void testStrangeThirdSelection() {
         try {
-            StaticMethodSelectionTest.strangeThirdSelection(1,2)
+            new GroovyShell().evaluate("org.kohsuke.groovy.sandbox.StaticMethodSelectionTest.strangeThirdSelection(1, 2)");
             fail();
         } catch (IllegalArgumentException e) {
-            assert e.message.contains("argument type mismatch")
+            assert e.getMessage().contains("argument type mismatch");
         }
     }
 }
