@@ -833,7 +833,7 @@ public class TheTest {
                 "ArrayList.join(String)"),
                 "This is a test",
                 "def s = []\n" +
-                "('" + f.getCanonicalPath() + "' as File).each { s << it }\n" +
+                "($/" + f.getCanonicalPath() + "/$ as File).each { s << it }\n" +
                 "s.join(' ')\n");
     }
 
