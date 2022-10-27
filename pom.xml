@@ -1,22 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
     <groupId>org.jenkins-ci</groupId>
     <artifactId>jenkins</artifactId>
-    <version>1.76</version>
+    <version>1.90</version>
     <relativePath />
   </parent>
 
   <groupId>org.kohsuke</groupId>
   <artifactId>groovy-sandbox</artifactId>
   <version>${revision}${changelist}</version>
+  <url>https://github.com/jenkinsci/${project.artifactId}</url>
 
   <name>Groovy Sandbox</name>
   <description>Executes untrusted Groovy script safely</description>
 
   <properties>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <revision>1.32</revision>
     <changelist>-SNAPSHOT</changelist>
     <gitHubRepo>jenkinsci/${project.artifactId}</gitHubRepo>
@@ -50,12 +51,6 @@
             <phase>package</phase>
           </execution>
         </executions>
-      </plugin>
-      <plugin>
-        <artifactId>maven-release-plugin</artifactId>
-        <configuration>
-          <releaseProfiles>release</releaseProfiles>
-        </configuration>
       </plugin>
     </plugins>
   </build>
@@ -94,33 +89,16 @@
 
   <profiles>
     <profile>
-      <id>release</id>
+      <id>jenkins-release</id>
       <build>
         <plugins>
           <plugin>
             <artifactId>maven-source-plugin</artifactId>
             <executions>
               <execution>
-                <id>attach-sources</id>
-                <goals>
-                  <goal>jar-no-fork</goal>
-                </goals>
-              </execution>
-              <execution>
                 <id>attach-test-sources</id>
                 <goals>
                   <goal>test-jar-no-fork</goal>
-                </goals>
-              </execution>
-            </executions>
-          </plugin>
-          <plugin>
-            <artifactId>maven-javadoc-plugin</artifactId>
-            <executions>
-              <execution>
-                <id>attach-javadocs</id>
-                <goals>
-                  <goal>jar</goal>
                 </goals>
               </execution>
             </executions>
