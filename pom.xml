@@ -3,9 +3,9 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>org.jenkins-ci</groupId>
-    <artifactId>jenkins</artifactId>
-    <version>1.90</version>
+    <groupId>org.jenkins-ci.plugins</groupId>
+    <artifactId>plugin</artifactId>
+    <version>4.49</version>
     <relativePath />
   </parent>
 
@@ -21,8 +21,8 @@
     <revision>1.32</revision>
     <changelist>-SNAPSHOT</changelist>
     <gitHubRepo>jenkinsci/${project.artifactId}</gitHubRepo>
-    <!-- We throw Exception/Throwable in many places due to the nature of this library, and this visitor will be disabled by default in an upcoming SpotBugs release anyway, see https://github.com/spotbugs/spotbugs/issues/2040. -->
-    <spotbugs.omitVisitors>ThrowingExceptions</spotbugs.omitVisitors>
+    <!-- ClassRecorder is used by groovy-cps -->
+    <no-test-jar>false</no-test-jar>
   </properties>
 
   <repositories>
@@ -39,37 +39,11 @@
     </pluginRepository>
   </pluginRepositories>
 
-  <build>
-    <plugins>
-      <plugin>
-        <artifactId>maven-jar-plugin</artifactId>
-        <executions>
-          <execution>
-            <goals>
-              <goal>test-jar</goal> <!-- ClassRecorder is used by groovy-cps -->
-            </goals>
-            <phase>package</phase>
-          </execution>
-        </executions>
-      </plugin>
-    </plugins>
-  </build>
-
   <dependencies>
     <dependency>
       <groupId>org.codehaus.groovy</groupId>
       <artifactId>groovy</artifactId>
       <version>2.4.21</version> <!-- Note: Do not update past this version unless Jenkins core is updated to use a newer version of Groovy. -->
-    </dependency>
-    <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.jenkins-ci</groupId>
-      <artifactId>test-annotations</artifactId>
-      <scope>test</scope>
     </dependency>
   </dependencies>
 
@@ -86,25 +60,4 @@
       <url>https://opensource.org/licenses/MIT</url>
     </license>
   </licenses>
-
-  <profiles>
-    <profile>
-      <id>jenkins-release</id>
-      <build>
-        <plugins>
-          <plugin>
-            <artifactId>maven-source-plugin</artifactId>
-            <executions>
-              <execution>
-                <id>attach-test-sources</id>
-                <goals>
-                  <goal>test-jar-no-fork</goal>
-                </goals>
-              </execution>
-            </executions>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
-  </profiles>
 </project>
