@@ -1103,4 +1103,32 @@ public class SandboxTransformerTest {
                 "ArrayList.add(null)");
     }
 
+    @Test
+    public void sandboxSupportsReturnStatementsInClosures() throws Exception {
+        assertIntercept(
+                "@groovy.transform.Field\n" +
+                "private static final field = [\n" +
+                "  key: { x -> return x == 123 }\n" +
+                "]\n" +
+                "field.key(123)\n",
+                true,
+                "Script1.field",
+                "LinkedHashMap.key(Integer)",
+                "Integer.compareTo(Integer)");
+        assertIntercept(
+                "File method() {\n" +
+                "  def field = [\n" +
+                "    key: { x -> return x }\n" +
+                "  ]\n" +
+                "  result = field.key(['secret.key'])\n" +
+                "  null\n" +
+                "}\n" +
+                "method()\n" +
+                "result",
+                Arrays.asList("secret.key"),
+                "Script2.method()",
+                "LinkedHashMap.key(ArrayList)",
+                "Script2.result=ArrayList",
+                "Script2.result");
+    }
 }
