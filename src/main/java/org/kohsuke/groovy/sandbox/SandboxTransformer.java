@@ -375,9 +375,9 @@ public class SandboxTransformer extends CompilationCustomizer {
         private ClassNode clazz;
 
         /**
-         * Current method we are traversing.
+         * Return type of the current method or closure body that we are traversing.
          */
-        private MethodNode method;
+        private ClassNode methodReturnType;
 
         VisitorImpl(SourceUnit sourceUnit, ClassNode clazz) {
             this.sourceUnit = sourceUnit;
@@ -389,14 +389,14 @@ public class SandboxTransformer extends CompilationCustomizer {
             if (clazz == null) { // compatibility
                 clazz = node.getDeclaringClass();
             }
-            method = node;
+            methodReturnType = node.getReturnType();
             try {
                 // Add explicit return statements so we can insert casts as needed.
                 ReturnAdder adder = new ReturnAdder();
                 adder.visitMethod(node);
                 super.visitMethod(node);
             } finally {
-                method = null;
+                methodReturnType = null;
             }
         }
 
@@ -408,7 +408,7 @@ public class SandboxTransformer extends CompilationCustomizer {
             }
             super.visitReturnStatement(statement);
             // statement.getExpression has already been transformed by the super call, so we do not transform it twice.
-            statement.setExpression(makeCheckedGroovyCast(method.getReturnType(), statement.getExpression()));
+            statement.setExpression(makeCheckedGroovyCast(methodReturnType, statement.getExpression()));
         }
 
         @Override
@@ -498,10 +498,13 @@ public class SandboxTransformer extends CompilationCustomizer {
                     }
                     boolean old = visitingClosureBody;
                     visitingClosureBody = true;
+                    ClassNode oldMethodReturnType = methodReturnType;
+                    methodReturnType = ClassHelper.OBJECT_TYPE;
                     try {
                         ce.getCode().visit(this);
                     } finally {
                         visitingClosureBody = old;
+                        methodReturnType = oldMethodReturnType;
                     }
                 }
             }
