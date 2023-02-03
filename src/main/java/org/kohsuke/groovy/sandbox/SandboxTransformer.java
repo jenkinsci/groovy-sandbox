@@ -683,8 +683,21 @@ public class SandboxTransformer extends CompilationCustomizer {
                                     // "this.x = y" must be handled specially to prevent the sandbox from using
                                     // reflection to assign values to final fields in constructors and initializers
                                     // and to prevent infinite loops in setter methods.
-                                    return new BinaryExpression(new FieldExpression(field), be.getOperation(),
+                                    Token op = be.getOperation();
+                                    if (be.getOperation().getType() == Types.ASSIGN) {
+                                        return new BinaryExpression(new FieldExpression(field), op,
                                             makeCheckedGroovyCast(field.getType(), transform(be.getRightExpression())));
+                                    } else {
+                                        // Groovy does not support FieldExpression with compound assignment operators
+                                        // directly, so we must expand the expression ourselves.
+                                        Token plainAssignment = Token.newSymbol(Types.ASSIGN, op.getStartLine(), op.getStartColumn());
+                                        return new BinaryExpression(new FieldExpression(field), plainAssignment,
+                                            makeCheckedGroovyCast(field.getType(),
+                                                    makeCheckedCall("checkedBinaryOp",
+                                                            new FieldExpression(field),
+                                                            intExp(Ops.compoundAssignmentToBinaryOperator(op.getType())),
+                                                            transform(be.getRightExpression()))));
+                                    }
                                 } // else this is a property which we need to check
                             }
                             if (interceptProperty)
