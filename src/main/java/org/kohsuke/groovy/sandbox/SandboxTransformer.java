@@ -684,7 +684,7 @@ public class SandboxTransformer extends CompilationCustomizer {
                                     // reflection to assign values to final fields in constructors and initializers
                                     // and to prevent infinite loops in setter methods.
                                     Token op = be.getOperation();
-                                    if (be.getOperation().getType() == Types.ASSIGN) {
+                                    if (op.getType() == Types.ASSIGN) {
                                         return new BinaryExpression(new FieldExpression(field), op,
                                             makeCheckedGroovyCast(field.getType(), transform(be.getRightExpression())));
                                     } else {
