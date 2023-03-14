@@ -77,7 +77,9 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
         try (StackVariableSet scope = new StackVariableSet(this)) {
             loop.getLoopBlock().visit(this);
         }
-        loop.setBooleanExpression((BooleanExpression) transform(loop.getBooleanExpression()));
+        try (StackVariableSet scope = new StackVariableSet(this)) {
+            loop.setBooleanExpression((BooleanExpression) transform(loop.getBooleanExpression()));
+        }
     }
 
     @Override
@@ -116,7 +118,9 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
 
     @Override
     public void visitIfElse(IfStatement ifElse) {
-        ifElse.setBooleanExpression((BooleanExpression)transform(ifElse.getBooleanExpression()));
+        try (StackVariableSet scope = new StackVariableSet(this)) {
+            ifElse.setBooleanExpression((BooleanExpression)transform(ifElse.getBooleanExpression()));
+        }
         try (StackVariableSet scope = new StackVariableSet(this)) {
             ifElse.getIfBlock().visit(this);
         }
