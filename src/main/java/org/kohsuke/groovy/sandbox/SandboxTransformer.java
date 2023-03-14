@@ -4,14 +4,11 @@ import groovy.lang.Script;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import org.codehaus.groovy.GroovyBugError;
 import org.codehaus.groovy.ast.ASTNode;
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer;
 import org.codehaus.groovy.ast.ClassHelper;
@@ -61,8 +58,11 @@ import org.kohsuke.groovy.sandbox.impl.SandboxedMethodClosure;
 import static org.codehaus.groovy.ast.expr.ArgumentListExpression.EMPTY_ARGUMENTS;
 import org.codehaus.groovy.ast.stmt.BlockStatement;
 import org.codehaus.groovy.ast.stmt.ExpressionStatement;
+import org.codehaus.groovy.ast.stmt.ReturnStatement;
 import org.codehaus.groovy.ast.stmt.Statement;
-import org.codehaus.groovy.runtime.typehandling.DefaultTypeTransformation;
+import org.codehaus.groovy.classgen.ReturnAdder;
+import org.codehaus.groovy.classgen.VariableScopeVisitor;
+import org.codehaus.groovy.classgen.Verifier;
 import static org.codehaus.groovy.syntax.Types.*;
 
 /**
@@ -138,6 +138,9 @@ public class SandboxTransformer extends CompilationCustomizer {
         if (classNode == null) { // TODO is this even possible? CpsTransformer implies it is not.
             return;
         }
+
+        // Removes all initial expressions for constructors and methods and generates overloads for all variants.
+        new InitialExpressionExpander().expandInitialExpressions(source, classNode);
 
         ClassCodeExpressionTransformer visitor = createVisitor(source, classNode);
 
@@ -240,20 +243,16 @@ public class SandboxTransformer extends CompilationCustomizer {
             }
         } else {
             if (declaredConstructors.isEmpty()) {
-                ConstructorNode syntheticConstructor = new ConstructorNode(Modifier.PUBLIC, new BlockStatement());
-                declaredConstructors = Collections.singletonList(syntheticConstructor);
-                classNode.addConstructor(syntheticConstructor);
+                // Default constructor should have already been added by InitialExpressionExpander
+                throw new AssertionError("No constructors for " + classNode);
             } else {
                 declaredConstructors = new ArrayList<>(declaredConstructors);
             }
             for (ConstructorNode c : declaredConstructors) {
-                // Parameters are usually transformed in `ClassCodeExpressionTransformer.visitConstructorOrMethod`
-                // when `visitor.visitMethod(c)` is called, so we need to replicate that behavior here explicitly
-                // because we are not using the visitor.
                 for (Parameter p : c.getParameters()) {
                     if (p.hasInitialExpression()) {
-                        Expression init = p.getInitialExpression();
-                        p.setInitialExpression(visitor.transform(init));
+                        // All initial expressions should have already been removed by InitialExpressionExpander
+                        throw new AssertionError("Found unexpected initial expression: " + p.getInitialExpression());
                     }
                 }
                 Statement code = c.getCode();
@@ -329,7 +328,8 @@ public class SandboxTransformer extends CompilationCustomizer {
                         body2.get(i).visit(visitor);
                     }
                 });
-                ConstructorNode c2 = new ConstructorNode(Modifier.PRIVATE, params, c.getExceptions(), new BlockStatement(body2, c.getVariableScope()));
+                final int SYNTHETIC = 0x00001000; // Not public in Modifier
+                ConstructorNode c2 = new ConstructorNode(Modifier.PRIVATE | SYNTHETIC, params, c.getExceptions(), new BlockStatement(body2, c.getVariableScope()));
                 // perhaps more misleading than helpful: c2.setSourcePosition(c);
                 classNode.addConstructor(c2);
             }
@@ -374,6 +374,11 @@ public class SandboxTransformer extends CompilationCustomizer {
          */
         private ClassNode clazz;
 
+        /**
+         * Return type of the current method or closure body that we are traversing.
+         */
+        private ClassNode methodReturnType;
+
         VisitorImpl(SourceUnit sourceUnit, ClassNode clazz) {
             this.sourceUnit = sourceUnit;
             this.clazz = clazz;
@@ -384,7 +389,37 @@ public class SandboxTransformer extends CompilationCustomizer {
             if (clazz == null) { // compatibility
                 clazz = node.getDeclaringClass();
             }
-            super.visitMethod(node);
+            methodReturnType = node.getReturnType();
+            try {
+                // Add explicit return statements so we can insert casts as needed.
+                ReturnAdder adder = new ReturnAdder();
+                adder.visitMethod(node);
+                super.visitMethod(node);
+            } finally {
+                methodReturnType = null;
+            }
+        }
+
+        @Override
+        public void visitReturnStatement(ReturnStatement statement) {
+            if (statement.isReturningNullOrVoid()) {
+                // We must not mutate ReturnStatement.RETURN_NULL_OR_VOID, and we don't care about casting null anyway.
+                return;
+            }
+            super.visitReturnStatement(statement);
+            // statement.getExpression has already been transformed by the super call, so we do not transform it twice.
+            statement.setExpression(makeCheckedGroovyCast(methodReturnType, statement.getExpression()));
+        }
+
+        @Override
+        public void visitField(FieldNode node) {
+            super.visitField(node);
+            // When using @Field with a declaration that has no default value, node.getInitialExpression is an
+            // EmptyExpression rather than null, so we must ignore it to avoid breaking things.
+            if (node.hasInitialExpression() && !(node.getInitialValueExpression() instanceof EmptyExpression)) {
+                // node.getInitialValueExpression has already been transformed by the super call, so we do not transform it twice.
+                node.setInitialValueExpression(makeCheckedGroovyCast(node.getType(), node.getInitialValueExpression()));
+            }
         }
 
         /**
@@ -412,7 +447,23 @@ public class SandboxTransformer extends CompilationCustomizer {
             return new StaticMethodCallExpression(checkerClass,name,
                 new ArgumentListExpression(arguments));
         }
-    
+
+        /**
+         * Groovy implicitly casts some expressions at runtime, so we manually insert explicit casts as needed to
+         * intercept potentially dangerous calls.
+         */
+        Expression makeCheckedGroovyCast(ClassNode clazz, Expression value) {
+            if (isKnownSafeCast(clazz, value)) {
+                return value;
+            }
+            return makeCheckedCall("checkedCast",
+                    classExp(clazz),
+                    value,
+                    boolExp(false),
+                    boolExp(false), // Groovy evaluates implicit casts using ScriptByteCodeAdapter.castToType, so coerce must be false.
+                    boolExp(false));
+        }
+
         @Override
         public Expression transform(Expression exp) {
             Expression o = innerTransform(exp);
@@ -434,7 +485,7 @@ public class SandboxTransformer extends CompilationCustomizer {
                             for (Parameter p : parameters) {
                                 if (p.hasInitialExpression()) {
                                     Expression init = p.getInitialExpression();
-                                    p.setInitialExpression(transform(init));
+                                    p.setInitialExpression(makeCheckedGroovyCast(p.getType(), transform(init)));
                                 }
                             }
                             for (Parameter p : parameters) {
@@ -447,10 +498,13 @@ public class SandboxTransformer extends CompilationCustomizer {
                     }
                     boolean old = visitingClosureBody;
                     visitingClosureBody = true;
+                    ClassNode oldMethodReturnType = methodReturnType;
+                    methodReturnType = ClassHelper.OBJECT_TYPE;
                     try {
                         ce.getCode().visit(this);
                     } finally {
                         visitingClosureBody = old;
+                        methodReturnType = oldMethodReturnType;
                     }
                 }
             }
@@ -546,6 +600,17 @@ public class SandboxTransformer extends CompilationCustomizer {
                 );
             }
 
+            if (exp instanceof FieldExpression && interceptProperty) {
+                // I am not sure whether this is reachable. See note below regarding the only known case of FieldExpression in the AST.
+                FieldExpression fe = (FieldExpression) exp;
+                return makeCheckedCall("checkedGetAttribute",
+                    new VariableExpression("this"),
+                    boolExp(false),
+                    boolExp(false),
+                    stringExp(fe.getFieldName())
+                );
+            }
+
             if (exp instanceof VariableExpression && interceptProperty) {
                 VariableExpression vexp = (VariableExpression) exp;
                 if (isLocalVariable(vexp.getName()) || vexp.getName().equals("this") || vexp.getName().equals("super")) {
@@ -563,6 +628,17 @@ public class SandboxTransformer extends CompilationCustomizer {
 
             if (exp instanceof DeclarationExpression) {
                 handleDeclarations((DeclarationExpression) exp);
+                // We handle DeclarationExpression here to simplify handling of BinaryExpression for non-declaration assignments.
+                DeclarationExpression de = (DeclarationExpression) exp;
+                Expression rhs = de.getRightExpression();
+                if (rhs instanceof EmptyExpression) {
+                    // Declaration without initialization.
+                    return exp;
+                } else if (de.isMultipleAssignmentDeclaration()) {
+                    throw new UnsupportedOperationException("The sandbox does not currently support multiple assignment");
+                }
+                return withLoc(de, new DeclarationExpression(de.getVariableExpression(), de.getOperation(),
+                        makeCheckedGroovyCast(de.getVariableExpression().getType(), transform(rhs))));
             }
 
             if (exp instanceof BinaryExpression) {
@@ -575,13 +651,14 @@ public class SandboxTransformer extends CompilationCustomizer {
                     // 
                     // What can be LHS?
                     // according to AsmClassGenerator, PropertyExpression, AttributeExpression, FieldExpression, VariableExpression
+                    // Can also be TupleExpression, but we do not currently handle that.
 
                     Expression lhs = be.getLeftExpression();
                     if (lhs instanceof VariableExpression) {
                         VariableExpression vexp = (VariableExpression) lhs;
                         if (isLocalVariable(vexp.getName()) || vexp.getName().equals("this") || vexp.getName().equals("super")) {
-                            // We don't care what sandboxed code does to itself until it starts interacting with outside world
-                            return super.transform(exp);
+                            return withLoc(be, new BinaryExpression(lhs, be.getOperation(),
+                                    makeCheckedGroovyCast(vexp.getType(), transform(be.getRightExpression()))));
                         } else {
                             // if the variable is not in-scope local variable, it gets treated as a property access with implicit this.
                             // see AsmClassGenerator.visitVariableExpression and processClassVariable.
@@ -600,11 +677,14 @@ public class SandboxTransformer extends CompilationCustomizer {
                                 name = "checkedSetAttribute";
                         } else {
                             Expression receiver = pe.getObjectExpression();
-                            if (receiver instanceof VariableExpression && ((VariableExpression) receiver).getName().equals("this")) {
+                            if (receiver instanceof VariableExpression && ((VariableExpression) receiver).isThisExpression()) {
                                 FieldNode field = clazz != null ? clazz.getField(pe.getPropertyAsString()) : null;
-                                if (field != null) { // could also verify that it is final, but not necessary
-                                    // cf. BinaryExpression.transformExpression; super.transform(exp) transforms the LHS to checkedGetProperty
-                                    return new BinaryExpression(lhs, be.getOperation(), transform(be.getRightExpression()));
+                                if (field != null) {
+                                    // "this.x = y" must be handled specially to prevent the sandbox from using
+                                    // reflection to assign values to final fields in constructors and initializers
+                                    // and to prevent infinite loops in setter methods.
+                                    return new BinaryExpression(new FieldExpression(field), be.getOperation(),
+                                            makeCheckedGroovyCast(field.getType(), transform(be.getRightExpression())));
                                 } // else this is a property which we need to check
                             }
                             if (interceptProperty)
@@ -623,14 +703,22 @@ public class SandboxTransformer extends CompilationCustomizer {
                         );
                     } else
                     if (lhs instanceof FieldExpression) {
-                        // while javadoc of FieldExpression isn't very clear,
-                        // AsmClassGenerator maps this to GETSTATIC/SETSTATIC/GETFIELD/SETFIELD access.
-                        // not sure how we can intercept this, so skipping this for now
-                        // Additionally, it looks like FieldExpression might only be used internally during class
-                        // generation for AttributeExpression/PropertyExpression in AsmClassGenerator, for example,
-                        // the receiver for the expression is always referenced indirectly via the stack, so we
-                        // are limited in what we can do at this level.
-                        return super.transform(exp);
+                        // The only known occurrences of this expression in the AST are for the `this$0` field that is
+                        // added to anonymous and inner classes to allow them to access their outer class and for
+                        // assigning the values of static enum constant fields in synthetically generated enum constructors.
+                        FieldExpression fe = (FieldExpression) lhs;
+                        if (fe.getField().isFinal()) {
+                            // Assignments to final fields cannot be done reflectively, so we leave FieldExpression untransformed.
+                            return withLoc(be, new BinaryExpression(fe, be.getOperation(),
+                                    makeCheckedGroovyCast(fe.getType(), transform(be.getRightExpression()))));
+                        }
+                        return withLoc(be, makeCheckedCall("checkedSetAttribute",
+                                new VariableExpression("this"),
+                                stringExp(fe.getFieldName()),
+                                boolExp(false),
+                                boolExp(false),
+                                intExp(be.getOperation().getType()),
+                                makeCheckedGroovyCast(fe.getType(), transform(be.getRightExpression()))));
                     } else
                     if (lhs instanceof BinaryExpression) {
                         BinaryExpression lbe = (BinaryExpression) lhs;
@@ -642,6 +730,8 @@ public class SandboxTransformer extends CompilationCustomizer {
                                     transform(be.getRightExpression())
                             );
                         }
+                    } else if (lhs instanceof TupleExpression) {
+                        throw new UnsupportedOperationException("The sandbox does not support multiple assignment");
                     }
                     throw new AssertionError("Unexpected LHS of an assignment: " + lhs.getClass());
                 }
@@ -793,6 +883,18 @@ public class SandboxTransformer extends CompilationCustomizer {
                 }
             }
 
+            // a.@b++
+            if (atom instanceof AttributeExpression && interceptProperty) {
+                AttributeExpression ae = (AttributeExpression) atom;
+                return makeCheckedCall("checked" + mode + "Attribute",
+                        transformObjectExpression(ae),
+                        transform(ae.getProperty()),
+                        boolExp(ae.isSafe()),
+                        boolExp(ae.isSpreadSafe()),
+                        stringExp(op)
+                );
+            }
+
             // a.b++
             if (atom instanceof PropertyExpression && interceptProperty) {
                 PropertyExpression pe = (PropertyExpression) atom;
@@ -805,13 +907,19 @@ public class SandboxTransformer extends CompilationCustomizer {
                 );
             }
 
-            // a.b++ where a.b is a FieldExpression.
-            // TODO: It is unclear if this is actually reachable. I think that syntax like `a.b` will always be a
+            // this.b++ where this.b is a FieldExpression.
+            // It is unclear if this is actually reachable. I think that syntax like `this.b` will always be a
             // PropertyExpression in this context. We handle it explicitly as a precaution, since the catch-all
             // below does not store the result, which would definitely be wrong for FieldExpression.
             if (atom instanceof FieldExpression) {
-                // See note in innerTransform regarding FieldExpression; this type of expression cannot be intercepted.
-                return whole;
+                FieldExpression fe = (FieldExpression) atom;
+                return makeCheckedCall("checked" + mode + "Attribute",
+                        new VariableExpression("this"),
+                        stringExp(fe.getFieldName()),
+                        boolExp(false),
+                        boolExp(false),
+                        stringExp(op)
+                );
             }
 
             // method()++, 1++, any other cases where "atom" is not valid as the LHS of an assignment expression, so no
@@ -881,52 +989,42 @@ public class SandboxTransformer extends CompilationCustomizer {
         }
 
         @Override
-        public void visitExpressionStatement(ExpressionStatement es) {
-            Expression exp = es.getExpression();
-            if (exp instanceof DeclarationExpression) {
-                DeclarationExpression de = (DeclarationExpression) exp;
-                Expression leftExpression = de.getLeftExpression();
-                if (leftExpression instanceof VariableExpression) {
-                    // Only cast and transform if the RHS is *not* an EmptyExpression, i.e., "String foo;" would not be cast/transformed.
-                    if (!(de.getRightExpression() instanceof EmptyExpression) &&
-                            mightBePositionalArgumentConstructor((VariableExpression) leftExpression)) {
-                        CastExpression ce = new CastExpression(leftExpression.getType(), de.getRightExpression());
-                        ce.setCoerce(true);
-                        es.setExpression(transform(new DeclarationExpression(leftExpression, de.getOperation(), ce)));
-                        return;
-                    }
-                } else {
-                    throw new UnsupportedOperationException("not supporting tuples yet"); // cf. "Unexpected LHS of an assignment" above
-                }
-            }
-            super.visitExpressionStatement(es);
-        }
-
-        @Override
         protected SourceUnit getSourceUnit() {
             return sourceUnit;
         }
     }
 
+    // Subclassing is required because the methods we need have protected visibility in Verifier.
+    public static class InitialExpressionExpander extends Verifier {
+        public void expandInitialExpressions(SourceUnit source, ClassNode node) {
+            super.setClassNode(node);
+            if (node.isInterface()) {
+                return;
+            }
+            super.addDefaultParameterMethods(node);
+            super.addDefaultParameterConstructors(node);
+            super.addDefaultConstructor(node);
+            // addDefaultParameterMethods introduces VariablesExpressions with a null getAccessedVariable(), so we
+            // rerun VariableScopeVisitor to prevent issues when this is used by groovy-cps.
+            new VariableScopeVisitor(source).visitClass(node);
+        }
+    }
+
     /**
-     * Checks if a {@link DeclarationExpression#getVariableExpression} might induce {@link DefaultTypeTransformation#castToType} to call a constructor.
-     * If so, {@link Checker#checkedCast} should be run.
-     * Will be false for example if the declared type is an array, {@code abstract}, or unspecified (just {@code def}).
-     * Not yet supporting {@link DeclarationExpression#getTupleExpression} on LHS;
-     * and currently ignoring {@link DeclarationExpression#getRightExpression} though some might not possibly be arrays, {@link Collection}s, or {@link Map}s.
+     * Return true if this cast is statically known to be safe and does not need to be checked at runtime.
+     *
+     * @see Checker#preCheckedCast
      */
-    public static boolean mightBePositionalArgumentConstructor(VariableExpression ve) {
-        ClassNode type = ve.getType();
-        if (type.isArray()) {
-            return false; // do not care about componentType
+    public static boolean isKnownSafeCast(ClassNode type, Expression exp) {
+        if (exp.getType().isDerivedFrom(type) || exp.getType().implementsInterface(type)) {
+            return true;
+        } else if (exp instanceof ConstantExpression && ((ConstantExpression)exp).isNullExpression()) {
+            return true;
+        } else if (exp instanceof EmptyExpression) {
+            // If we get here, something has already gone wrong, and inserting a checked cast would make things even worse.
+            return true;
         }
-        Class clazz;
-        try {
-            clazz = type.getTypeClass();
-        } catch (GroovyBugError x) {
-            return false; // "ClassNode#getTypeClass for … is called before the type class is set" when assigning to a type defined in Groovy source
-        }
-        return clazz != null && clazz != Object.class && !Modifier.isAbstract(clazz.getModifiers());
+        return false;
     }
 
     static final Token ASSIGNMENT_OP = new Token(Types.ASSIGN, "=", -1, -1);

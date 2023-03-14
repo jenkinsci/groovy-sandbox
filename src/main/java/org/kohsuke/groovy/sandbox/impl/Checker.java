@@ -44,7 +44,6 @@ import java.util.concurrent.Callable;
 
 import static org.codehaus.groovy.runtime.InvokerHelper.getMetaClass;
 import static org.codehaus.groovy.runtime.MetaClassHelper.convertToTypeArray;
-import org.kohsuke.groovy.sandbox.SandboxTransformer;
 import static org.kohsuke.groovy.sandbox.impl.ClosureSupport.BUILTIN_PROPERTIES;
 
 /**
@@ -221,7 +220,7 @@ public class Checker {
 
     public static Object checkedConstructor(Class _type, Object[] _args) throws Throwable {
         // Make sure that this is not an illegal call to a synthetic constructor.
-        GroovyCallSiteSelector.findConstructor(_type, _args);
+        GroovyCallSiteSelector.findConstructor(_type, _args, null);
         return new VarArgInvokerChain(_type) {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
                 if (chain.hasNext())
@@ -264,7 +263,7 @@ public class Checker {
 
     public static SuperConstructorWrapper checkedSuperConstructor(Class<?> thisClass, Class<?> superClass, Object[] superCallArgs, Object[] constructorArgs, Class<?>[] constructorParamTypes) throws Throwable {
         // Make sure that the call to this synthetic constructor is not illegal.
-        GroovyCallSiteSelector.findConstructor(superClass, superCallArgs);
+        GroovyCallSiteSelector.findConstructor(superClass, superCallArgs, SuperConstructorWrapper.class);
         explicitConstructorCallSanity(thisClass, SuperConstructorWrapper.class, constructorArgs, constructorParamTypes);
         new VarArgInvokerChain(superClass) {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
@@ -289,7 +288,7 @@ public class Checker {
 
     public static ThisConstructorWrapper checkedThisConstructor(final Class<?> clazz, Object[] thisCallArgs, Object[] constructorArgs, Class<?>[] constructorParamTypes) throws Throwable {
         // Make sure that the call to this synthetic constructor is not illegal.
-        GroovyCallSiteSelector.findConstructor(clazz, thisCallArgs);
+        GroovyCallSiteSelector.findConstructor(clazz, thisCallArgs, ThisConstructorWrapper.class);
         explicitConstructorCallSanity(clazz, ThisConstructorWrapper.class, constructorArgs, constructorParamTypes);
         new VarArgInvokerChain(clazz) {
             public Object call(Object receiver, String method, Object... args) throws Throwable {
@@ -432,6 +431,9 @@ public class Checker {
                     return chain.next().onSetProperty(this,receiver,property,value);
                 else {
                     // according to AsmClassGenerator this is how the compiler maps it to
+                    // TODO: There is an implicit cast here. Very awkward for us to handle because we have to fully
+                    // understand the meaning of receiver.property to know the target type of the cast.
+                    // For now, API consumers must handle it themselves in onSetProperty.
                     ScriptBytecodeAdapter.setProperty(value,null,receiver,property);
                     return value;
                 }
@@ -526,6 +528,7 @@ public class Checker {
             return checkedSetArray(_receiver, _index, Types.ASSIGN,
                     checkedBinaryOp(v, Ops.compoundAssignmentToBinaryOperator(op), _value));
         } else {
+            // Note that in regular Groovy, value is cast to the component type of the array, but this code does not do that.
             return new TwoArgInvokerChain(_receiver) {
                 public Object call(Object receiver, String method, Object index, Object value) throws Throwable {
                     if (chain.hasNext())
@@ -580,6 +583,26 @@ public class Checker {
         Object o = checkedGetProperty(receiver, safe, spread, property);
         Object n = checkedCall(o, false, false, op, new Object[0]);
         checkedSetProperty(receiver, property, safe, spread, Types.ASSIGN, n);
+        return n;
+    }
+
+    /**
+     * a.@x++ / a.@x--
+     */
+    public static Object checkedPostfixAttribute(Object receiver, Object property, boolean safe, boolean spread, String op) throws Throwable {
+        Object o = checkedGetAttribute(receiver, safe, spread, property);
+        Object n = checkedCall(o, false, false, op, new Object[0]);
+        checkedSetAttribute(receiver, property, safe, spread, Types.ASSIGN, n);
+        return o;
+    }
+
+    /**
+     * ++a.@x / --a.@x
+     */
+    public static Object checkedPrefixAttribute(Object receiver, Object property, boolean safe, boolean spread, String op) throws Throwable {
+        Object o = checkedGetAttribute(receiver, safe, spread, property);
+        Object n = checkedCall(o, false, false, op, new Object[0]);
+        checkedSetAttribute(receiver, property, safe, spread, Types.ASSIGN, n);
         return n;
     }
 
@@ -810,7 +833,6 @@ public class Checker {
     /**
      * Runs {@link ScriptBytecodeAdapter#asType} but only after giving interceptors the chance to reject any possible interface methods as applied to the receiver.
      * For example, might run {@code receiver.method1(null, false)} and {@code receiver.method2(0, null)} if methods with matching signatures were defined in the interfaces.
-     * @see SandboxTransformer#mightBePositionalArgumentConstructor
      */
     public static Object checkedCast(Class<?> clazz, Object exp, boolean ignoreAutoboxing, boolean coerce, boolean strict) throws Throwable {
         return preCheckedCast(clazz, exp, ignoreAutoboxing, coerce, strict).call();
@@ -851,8 +873,44 @@ public class Checker {
                         }
                     }.call(exp, m.getName(), args);
                 }
+            } else if (Modifier.isAbstract(clazz.getModifiers()) && !Modifier.isFinal(clazz.getModifiers()) && (exp instanceof Closure || exp instanceof Map)) {
+                // Groovy will create a proxy object whose methods will delegate to the closure or map values.
+                // The bodies of any closures cast using this mechanism will be be sandbox transformed, but we check
+                // whether the abstract class is allowed to be instantiated in the sandbox as a precaution.
+                // Technically, if coerce is false, then this should only happen if the abstract class has a single
+                // abstract method, but it seems simplest to handle the cases symmetrically and risk a false positive
+                // RejectedAccessException in some cases that would throw a GroovyCastException in regular Groovy.
+                for (Constructor c : clazz.getConstructors()) { // ProxyGeneratorAdapter seems to generate a constructor for each constructor in the abstract class, and I am not sure which one will be used, so we intercept them all.
+                    Object[] args = new Object[c.getParameterTypes().length];
+                    for (int i = 0; i < args.length; i++) {
+                        args[i] = getDefaultValue(c.getParameterTypes()[i]);
+                    }
+                    new VarArgInvokerChain(exp) {
+                        public Object call(Object receiver, String method, Object... args) throws Throwable {
+                            if (chain.hasNext()) {
+                                return chain.next().onNewInstance(this, clazz, args);
+                            } else {
+                                return null;
+                            }
+                        }
+                    }.call(clazz, null, args);
+                }
+            } else if ((clazz == boolean.class || clazz == Boolean.class) && exp.getClass() != Boolean.class) {
+                // Boolean casts must never be handled as constructor invocation.
+                new ZeroArgInvokerChain(exp) {
+                    public Object call(Object receiver, String method) throws Throwable {
+                        if (chain.hasNext()) {
+                            return chain.next().onMethodCall(this, receiver, method);
+                        } else {
+                            return null;
+                        }
+                    }
+                }.call(exp, "asBoolean");
+            } else if (unbox(clazz).isPrimitive() || clazz == String.class) {
+                // Casts to non-boolean primitives (and their boxed equivalents) and to String never
+                // perform any reflective operations, so we do not care about them, and they should never be handled as
+                // constructor invocation.
             } else if (!clazz.isArray() && clazz != Object.class && !Modifier.isAbstract(clazz.getModifiers()) && (exp instanceof Collection || exp.getClass().isArray() || exp instanceof Map)) {
-                // cf. mightBePositionalArgumentConstructor
                 Object[] args = null;
                 if (exp instanceof Collection) {
                     if (isCollectionSafeToCast((Collection) exp)) {
@@ -881,6 +939,23 @@ public class Checker {
                     }.call(clazz, null, args);
                 } else {
                     throw new IllegalStateException(exp.getClass() + ".toArray() must not return null");
+                }
+            } else if (clazz.isArray() && !clazz.getComponentType().isPrimitive() && (exp instanceof Collection || exp instanceof Object[])) {
+                Object[] array;
+                if (exp instanceof Collection) {
+                    if (isCollectionSafeToCast((Collection) exp)) {
+                        array = ((Collection) exp).toArray();
+                    } else {
+                        throw new UnsupportedOperationException(
+                                "Casting non-standard implementations of Collection to an array is not supported. " +
+                                "Consider converting " + exp.getClass() + " to a Collection defined in the java.util package and then casting to " + clazz + ".");
+                    }
+                } else {
+                    array = (Object[])exp;
+                }
+                // We intercept the per-element casts.
+                for (Object element : array) {
+                    preCheckedCast(clazz.getComponentType(), element, coerce, strict, ignoreAutoboxing);
                 }
             } else if (clazz == File.class && exp instanceof CharSequence) {
                 Object[] args = new Object[]{exp.toString()};
@@ -1008,5 +1083,21 @@ public class Checker {
         } catch (NoSuchMethodException e) {
             throw new AssertionError(e); // Developer error.
         }
+    }
+
+    private static Class<?> unbox(Class<?> clazz) {
+        return BOX_TO_PRIMITIVE.getOrDefault(clazz, clazz);
+    }
+
+    private static final Map<Class<?>, Class<?>> BOX_TO_PRIMITIVE = new HashMap<>();
+    static {
+        BOX_TO_PRIMITIVE.put(Boolean.class, boolean.class);
+        BOX_TO_PRIMITIVE.put(Byte.class, byte.class);
+        BOX_TO_PRIMITIVE.put(Character.class, char.class);
+        BOX_TO_PRIMITIVE.put(Double.class, double.class);
+        BOX_TO_PRIMITIVE.put(Float.class, float.class);
+        BOX_TO_PRIMITIVE.put(Integer.class, int.class);
+        BOX_TO_PRIMITIVE.put(Long.class, long.class);
+        BOX_TO_PRIMITIVE.put(Short.class, short.class);
     }
 }

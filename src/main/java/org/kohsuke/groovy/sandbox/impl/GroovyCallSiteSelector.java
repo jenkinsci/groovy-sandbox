@@ -41,16 +41,20 @@ public class GroovyCallSiteSelector {
      * @throws SecurityException if no valid constructor is found, or if the constructor is a synthetic constructor
      * added by SandboxTransformer and the constructor wrapper argument is invalid.
      */
-    public static Constructor<?> findConstructor(Class<?> type, Object[] args) {
+    public static Constructor<?> findConstructor(Class<?> type, Object[] args, Class<?> expectedConstructorWrapper) {
         Constructor<?> c = constructor(type, args);
         if (c == null) {
             throw new SecurityException("Unable to find constructor: " + GroovyCallSiteSelector.formatConstructor(type, args));
         }
         // Check to make sure that users are not directly calling synthetic constructors without going through
         // `Checker.checkedSuperConstructor` or `Checker.checkedThisConstructor`. Part of SECURITY-1754.
-        if (isIllegalCallToSyntheticConstructor(c, args)) {
+        if (isSandboxGeneratedConstructor(c) && (
+                expectedConstructorWrapper == null || // Generated constructors should never be called directly, so any call from Checker.checkedConstructor should be rejected
+                args.length < 1 || // Should always be false since isSandboxGeneratedConstructor returned true
+                args[0] == null || // The wrapper argument must not be null
+                args[0].getClass() != expectedConstructorWrapper)) { // The first argument must match the expected wrapper type
             String alternateConstructors = Stream.of(c.getDeclaringClass().getDeclaredConstructors())
-                .filter(tempC -> !isSyntheticConstructor(tempC))
+                .filter(tempC -> !isSandboxGeneratedConstructor(tempC))
                 .map(Object::toString)
                 .sorted()
                 .collect(Collectors.joining(", "));
@@ -106,25 +110,14 @@ public class GroovyCallSiteSelector {
      * @return true if this constructor is one that was added by groovy-sandbox in {@code SandboxTransformer.processConstructors}
      * specifically to be able to intercept calls to super in constructors.
      */
-    private static boolean isSyntheticConstructor(Constructor<?> c) {
-        for (Class<?> parameterType : c.getParameterTypes()) {
-            for (Class<?> syntheticParamType : SYNTHETIC_CONSTRUCTOR_PARAMETER_TYPES) {
-                if (parameterType == syntheticParamType) {
-                    return true;
-                }
-            }
+    private static boolean isSandboxGeneratedConstructor(Constructor<?> c) {
+        if (!c.isSynthetic()) {
+            return false;
         }
-        return false;
-    }
-
-    private static boolean isIllegalCallToSyntheticConstructor(Constructor<?> c, Object[] args) {
         Class<?>[] parameterTypes = c.getParameterTypes();
-        for (int i = 0; i < parameterTypes.length; i++) {
-            Class<?> parameterType = parameterTypes[i];
-            Object arg = args[i];
+        if (parameterTypes.length > 0) {
             for (Class<?> syntheticParamType : SYNTHETIC_CONSTRUCTOR_PARAMETER_TYPES) {
-                // Using explicit equality checks instead of `instanceOf` to disallow subclasses of SuperConstructorWrapper and ThisConstructorWrapper.
-                if (parameterType == syntheticParamType && (arg == null || arg.getClass() != syntheticParamType)) {
+                if (parameterTypes[0] == syntheticParamType) {
                     return true;
                 }
             }
