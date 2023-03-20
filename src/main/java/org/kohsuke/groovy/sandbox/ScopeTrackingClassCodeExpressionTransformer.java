@@ -111,6 +111,8 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
                 // When using Java-style for loops, the 3 expressions are a ClosureListExpression and ForStatement.getVariable is a dummy value that we need to ignore.
                 declareVariable(forLoop.getVariable());
             }
+            // Avoid super.visitForLoop because it transforms the collection expression but then recurses on the entire
+            // ForStatement, causing the collection expression to be visited a second time.
             forLoop.setCollectionExpression(transform(forLoop.getCollectionExpression()));
             forLoop.getLoopBlock().visit(this);
         }
@@ -138,6 +140,8 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
 
     @Override
     public void visitSynchronizedStatement(SynchronizedStatement sync) {
+        // Avoid super.visitSynchronizedStatement because it transforms the expression but then recurses on the entire
+        // SynchronizedStatement, causing the expression to be visited a second time.
         sync.setExpression(transform(sync.getExpression()));
         try (StackVariableSet scope = new StackVariableSet(this)) {
             sync.getCode().visit(this);
@@ -161,6 +165,8 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
 
     @Override
     public void visitWhileLoop(WhileStatement loop) {
+        // Avoid super.visitWhileLoop because it transforms the boolean expression but then recurses on the entire
+        // WhileStatement, causing the boolean expression to be visited a second time.
         loop.setBooleanExpression((BooleanExpression) transform(loop.getBooleanExpression()));
         try (StackVariableSet scope = new StackVariableSet(this)) {
             loop.getLoopBlock().visit(this);

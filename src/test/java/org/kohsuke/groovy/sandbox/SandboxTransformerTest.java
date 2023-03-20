@@ -1163,4 +1163,93 @@ public class SandboxTransformerTest {
                 "}\n");
     }
 
+    @Test
+    public void sandboxSupportsFinalFields() {
+        assertIntercept(
+                "class Test {\n" +
+                "  final String p\n" +
+                "  Test() {\n" +
+                "    p = 'value'\n" +
+                "  }\n" +
+                "}\n" +
+                "new Test().p",
+                "value",
+                // Intercepted operations:
+                "new Test()",
+                "Test.p");
+    }
+
+    @Test
+    public void sandboxDoesNotRecurseInfinitelyInSetters() {
+        assertIntercept(
+                "class Test {\n" +
+                "  String prop\n" +
+                "  def setProp(newProp) {\n" +
+                "    prop = newProp\n" +
+                "    prop\n" +
+                "  }\n" +
+                "}\n" +
+                "new Test().prop = 'value'",
+                "value",
+                // Intercepted operations:
+                "new Test()",
+                "Test.prop=String",
+                "Test.prop");
+    }
+
+    @Test
+    public void sandboxDoesNotPerformImplicitCastsForOverloadedOperators() {
+        // groovy.lang.MissingMethodException: No signature of method: OverridePlus.plus() is applicable for argument types: (java.util.ArrayList) values: [[secret.key]]
+        assertFailsWithSameException(
+                "class OverridePlus {\n" +
+                "  def file\n" +
+                "  OverridePlus plus(File file) {\n" +
+                "    this.file = file\n" +
+                "    this\n" +
+                "  }\n" +
+                "}\n" +
+                "new OverridePlus() + ['secret.key']\n");
+    }
+
+    @Issue("JENKINS-70080")
+    @Test
+    public void sandboxSupportsCompoundAssignmentsToFields() throws Throwable {
+        assertIntercept(
+                "class Test {\n" +
+                "  def map = [:]\n" +
+                "  def add(newMap) {\n" +
+                "    map += newMap\n" +
+                "    map\n" +
+                "  }\n" +
+                "}\n" +
+                "new Test().add([k: 'v'])\n",
+                Collections.singletonMap("k", "v"),
+                // Intercepted operations:
+                "new Test()",
+                "Test.add(LinkedHashMap)",
+                "LinkedHashMap.plus(LinkedHashMap)",
+                "Test.map");
+        assertIntercept(
+                "class Test {\n" +
+                "  final Map map = [:]\n" +
+                "  Test(newMap) {\n" +
+                "    map += newMap\n" + // Groovy is more lenient with 'final' than Java
+                "  }\n" +
+                "}\n" +
+                "new Test([k: 'v']).map\n",
+                Collections.singletonMap("k", "v"),
+                // Intercepted operations:
+                "new Test(LinkedHashMap)",
+                "LinkedHashMap.plus(LinkedHashMap)",
+                "Test.map");
+        assertFailsWithSameException(
+                "class Test {\n" +
+                "  final Map map\n" +
+                "  Test(newMap) {\n" +
+                "    map += newMap\n" + // java.lang.NullPointerException: Cannot execute null+{}
+                "  }\n" +
+                "}\n" +
+                "new Test([:]).map\n");
+    }
+
 }
