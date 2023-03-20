@@ -1131,4 +1131,36 @@ public class SandboxTransformerTest {
                 "Script2.result=ArrayList",
                 "Script2.result");
     }
+
+    @Test public void closureVariablesInLoopExpressions() throws Exception {
+        assertIntercept(
+                "for (int x = 0; ({s -> s})(true); x++) {\n" +
+                "    return true\n" +
+                "}\n" +
+                "return false\n",
+                true,
+                "Script1$_run_closure1.call(Boolean)");
+        assertIntercept(
+                "while (({s -> s})(true)) {\n" +
+                "    return true\n" +
+                "}\n" +
+                "return false\n",
+                true,
+                "Script2$_run_closure1.call(Boolean)");
+        assertIntercept(
+                "while (({it})(true)) {\n" +
+                "    return true\n" +
+                "}\n" +
+                "return false\n",
+                true,
+                "Script3$_run_closure1.call(Boolean)");
+    }
+
+    @Test public void forLoopDummyParameterIsNotDeclared() {
+        assertFailsWithSameException(
+                "for (int i = 0; i < 1; i++) {\n" +
+                "  println(forLoopDummyParameter)\n" +
+                "}\n");
+    }
+
 }
