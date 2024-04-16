@@ -79,11 +79,13 @@ public class SandboxTransformerTest {
         unsandboxedSh = new GroovyShell(binding,cc);
     }
 
+    public void configureBinding() { }
+
     /**
      * Use {@code ShouldFail.class} as the expected result for {@link #sandboxedEval} and {@link #unsandboxedEval}
      * when the expression is expected to throw an exception.
      */
-    private static final class ShouldFail { }
+    public static final class ShouldFail { }
 
     @FunctionalInterface
     public interface ExceptionHandler {
@@ -93,12 +95,12 @@ public class SandboxTransformerTest {
     /**
      * Executes a Groovy expression inside of the sandbox.
      * @param expression The Groovy expression to execute.
-     * @return the result of executing the expression.
      */
-    private void sandboxedEval(String expression, Object expectedResult, ExceptionHandler handler) {
+    public void sandboxedEval(String expression, Object expectedResult, ExceptionHandler handler) {
         cr.reset();
         cr.register();
         try {
+            configureBinding();
             Object actual = sandboxedSh.evaluate(expression);
             String actualType = GroovyCallSiteSelector.getName(actual);
             String expectedType = GroovyCallSiteSelector.getName(expectedResult);
@@ -121,10 +123,10 @@ public class SandboxTransformerTest {
     /**
      * Executes a Groovy expression outside of the sandbox.
      * @param expression The Groovy expression to execute.
-     * @return the result of executing the expression.
      */
     private void unsandboxedEval(String expression, Object expectedResult, ExceptionHandler handler) {
         try {
+            configureBinding();
             Object actual = unsandboxedSh.evaluate(expression);
             String actualType = GroovyCallSiteSelector.getName(actual);
             String expectedType = GroovyCallSiteSelector.getName(expectedResult);
@@ -144,16 +146,33 @@ public class SandboxTransformerTest {
      * @param expectedReturnValue The expected return value for running the script.
      * @param expectedCalls The method calls that are expected to be intercepted by the sandbox.
      */
-    private void assertIntercept(String expression, Object expectedReturnValue, String... expectedCalls) {
+    public void assertIntercept(String expression, Object expectedReturnValue, String... expectedCalls) {
         assertEvaluate(expression, expectedReturnValue);
         assertIntercepted(expectedCalls);
     }
 
     /**
      * Check that the most recently executed expression intercepted the expected calls.
+     * Automatically adds {@code new Script(Binding)} to the list of intercepted calls.
+     * @param expectedCalls The method calls that were expected to be intercepted by the sandbox.
+     * @see #assertInterceptedExact
+     */
+    public void assertIntercepted(String... expectedCalls) {
+        // Workaround to avoid having to update all existing tests.
+        String[] updatedExpectedCalls = expectedCalls;
+        if (expectedCalls.length == 0 || (expectedCalls.length > 0 && !expectedCalls[0].equals("new Script(Binding)"))) {
+            updatedExpectedCalls = new String[expectedCalls.length + 1];
+            updatedExpectedCalls[0] = "new Script(Binding)";
+            System.arraycopy(expectedCalls, 0, updatedExpectedCalls, 1, expectedCalls.length);
+        }
+        assertInterceptedExact(updatedExpectedCalls);
+    }
+
+    /**
+     * Check that the most recently executed expression intercepted the expected calls.
      * @param expectedCalls The method calls that were expected to be intercepted by the sandbox.
      */
-    private void assertIntercepted(String... expectedCalls) {
+    public void assertInterceptedExact(String... expectedCalls) {
         String[] interceptedCalls = cr.toString().split("\n");
         if (interceptedCalls.length == 1 && interceptedCalls[0].equals("")) {
             interceptedCalls = new String[0];
@@ -167,7 +186,7 @@ public class SandboxTransformerTest {
      * @param expression The Groovy expression to execute.
      * @param expectedReturnValue The expected return value for running the script.
      */
-    private void assertEvaluate(String expression, Object expectedReturnValue) {
+    public void assertEvaluate(String expression, Object expectedReturnValue) {
         sandboxedEval(expression, expectedReturnValue, e -> {
             throw new RuntimeException("Failed to evaluate sandboxed expression: " + expression, e);
         });
@@ -427,6 +446,55 @@ public class SandboxTransformerTest {
                 "new Subclass()",
                 "new Subclass(Integer)",
                 "new Superclass()");
+    }
+
+    @Issue("SECURITY-3341")
+    @Test public void sandboxBlocksCastingInThisConstructorCalls() throws Exception {
+        sandboxedEval(
+                "class Subclass {\n" +
+                "  def x\n" +
+                "  Subclass() { this(['secret.key']) }\n" +
+                "  Subclass(File f) { this.x = f }\n" +
+                "}\n" +
+                "new Subclass().x\n",
+                ShouldFail.class,
+                e -> assertThat(e.getMessage(), containsString("Unable to find constructor: new Subclass java.util.ArrayList")));
+        sandboxedEval(
+                "class Subclass {\n" +
+                "  def x\n" +
+                "  Subclass(File f) { this.x = f }\n" +
+                "}\n" +
+                "(new Subclass(['secret.key']) { def getFoo() { x } }).foo\n",
+                ShouldFail.class,
+                e -> assertThat(e.getMessage(), containsString("Unable to find constructor: new Subclass java.util.ArrayList")));
+    }
+
+    @Issue("SECURITY-3341")
+    @Test public void sandboxBlocksCastingInSuperConstructorCalls() throws Exception {
+        sandboxedEval(
+                "package com.cloudbees.groovy.cps\n" +
+                "class SerializableScript {\n" +
+                "  def x\n" +
+                "  SerializableScript(File f) { this.x = f }\n" +
+                "}\n" +
+                "class Subclass extends SerializableScript {\n" +
+                "  Subclass() { super(['secret.key']) }" +
+                "}\n" +
+                "new Subclass().x\n",
+                ShouldFail.class,
+                e -> assertThat(e.getMessage(), containsString("Unable to find constructor: new com.cloudbees.groovy.cps.SerializableScript java.util.ArrayList")));
+        sandboxedEval(
+                "package java.lang\n" +
+                "class Object {\n" +
+                "  def x\n" +
+                "  Object(File f) { this.x = f }\n" +
+                "}\n" +
+                "class Subclass extends Object {\n" +
+                "  Subclass() { super(['secret.key']) }" +
+                "}\n" +
+                "new Subclass().x\n",
+                ShouldFail.class,
+                e -> assertThat(e.getMessage(), containsString("Prohibited package name: java.lang")));
     }
 
     @Issue({ "SECURITY-1754", "SECURITY-2824" })
@@ -844,6 +912,7 @@ public class SandboxTransformerTest {
                 new File("secret.key"),
                 "new Test()",
                 "new File(String)",
+                "new Test(File)",
                 "Test.x");
     }
 

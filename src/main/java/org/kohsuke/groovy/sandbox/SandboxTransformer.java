@@ -1,11 +1,9 @@
 package org.kohsuke.groovy.sandbox;
 
-import groovy.lang.Script;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -194,12 +192,14 @@ public class SandboxTransformer extends CompilationCustomizer {
         }
     }
 
-    /** Do not care about {@code super} or {@code this} calls for classes extending these types. */
-    private static final Set<String> TRIVIAL_CONSTRUCTORS = new HashSet<>(Arrays.asList(
-        Object.class.getName(),
-        Script.class.getName(),
-        "com.cloudbees.groovy.cps.SerializableScript",
-        "org.jenkinsci.plugins.workflow.cps.CpsScript"));
+    /**
+     * Do not care about {@code super} calls for classes extending these types.
+     *
+     * <p>Entries in this list must not have any constructors with parameters whose types are not safe to construct in
+     * the sandbox, and they must be in a package that cannot be used to define new classes in the sandbox.
+     */
+    private static final Set<String> TRIVIAL_CONSTRUCTORS = Collections.singleton(Object.class.getName());
+
     /**
      * Apply SECURITY-582 (and part of SECURITY-1754) fix to constructors.
      *
@@ -237,102 +237,112 @@ public class SandboxTransformer extends CompilationCustomizer {
     public void processConstructors(final ClassCodeExpressionTransformer visitor, ClassNode classNode) {
         ClassNode superClass = classNode.getSuperClass();
         List<ConstructorNode> declaredConstructors = classNode.getDeclaredConstructors();
-        if (TRIVIAL_CONSTRUCTORS.contains(superClass.getName())) {
-            for (ConstructorNode c : declaredConstructors) {
-                visitor.visitMethod(c);
+        if (declaredConstructors.isEmpty()) {
+            if (classNode.isInterface()) {
+                // Interfaces are expected to not have constructors.
+                return;
             }
+            // Default constructor should have already been added by InitialExpressionExpander
+            throw new AssertionError("No constructors for " + classNode);
         } else {
-            if (declaredConstructors.isEmpty()) {
-                // Default constructor should have already been added by InitialExpressionExpander
-                throw new AssertionError("No constructors for " + classNode);
+            declaredConstructors = new ArrayList<>(declaredConstructors);
+        }
+        for (ConstructorNode c : declaredConstructors) {
+            for (Parameter p : c.getParameters()) {
+                if (p.hasInitialExpression()) {
+                    // All initial expressions should have already been removed by InitialExpressionExpander
+                    throw new AssertionError("Found unexpected initial expression: " + p.getInitialExpression());
+                }
+            }
+            Statement code = c.getCode();
+            List<Statement> body;
+            if (code instanceof BlockStatement) {
+                body = ((BlockStatement) code).getStatements();
             } else {
-                declaredConstructors = new ArrayList<>(declaredConstructors);
+                body = Collections.singletonList(code);
             }
-            for (ConstructorNode c : declaredConstructors) {
-                for (Parameter p : c.getParameters()) {
-                    if (p.hasInitialExpression()) {
-                        // All initial expressions should have already been removed by InitialExpressionExpander
-                        throw new AssertionError("Found unexpected initial expression: " + p.getInitialExpression());
-                    }
-                }
-                Statement code = c.getCode();
-                List<Statement> body;
-                if (code instanceof BlockStatement) {
-                    body = ((BlockStatement) code).getStatements();
+            ClassNode constructorCallType = ClassNode.SUPER;
+            TupleExpression constructorCallArgs = new TupleExpression();
+            if (!body.isEmpty() && body.get(0) instanceof ExpressionStatement && ((ExpressionStatement) body.get(0)).getExpression() instanceof ConstructorCallExpression) {
+                ConstructorCallExpression cce = (ConstructorCallExpression) ((ExpressionStatement) body.get(0)).getExpression();
+                if (cce.isThisCall()) {
+                    constructorCallType = ClassNode.THIS;
+                    body = body.subList(1, body.size());
+                    constructorCallArgs = ((TupleExpression) cce.getArguments());
+                } else if (cce.isSuperCall()) {
+                    body = body.subList(1, body.size());
+                    constructorCallArgs = ((TupleExpression) cce.getArguments());
                 } else {
-                    body = Collections.singletonList(code);
+                    // Some other class, for example if `new String();` happens to be the first statement
+                    // in a constructor. We handle this the same as an explicit call to `super()`.
                 }
-                ClassNode constructorCallType = ClassNode.SUPER;
-                TupleExpression constructorCallArgs = new TupleExpression();
-                if (!body.isEmpty() && body.get(0) instanceof ExpressionStatement && ((ExpressionStatement) body.get(0)).getExpression() instanceof ConstructorCallExpression) {
-                    ConstructorCallExpression cce = (ConstructorCallExpression) ((ExpressionStatement) body.get(0)).getExpression();
-                    if (cce.isThisCall()) {
-                        constructorCallType = ClassNode.THIS;
-                        body = body.subList(1, body.size());
-                        constructorCallArgs = ((TupleExpression) cce.getArguments());
-                    } else if (cce.isSuperCall()) {
-                        body = body.subList(1, body.size());
-                        constructorCallArgs = ((TupleExpression) cce.getArguments());
-                    }
-                }
-                final TupleExpression _constructorCallArgs = constructorCallArgs;
-                final AtomicReference<Expression> constructorCallArgsTransformed = new AtomicReference<>();
-                ((ScopeTrackingClassCodeExpressionTransformer) visitor).withMethod(c, new Runnable() {
-                    @Override
-                    public void run() {
-                        constructorCallArgsTransformed.set(((VisitorImpl) visitor).transformArguments(_constructorCallArgs));
-                    }
-                });
-                // Create parameters for new constructor.
-                Parameter[] origParams = c.getParameters();
-                Parameter[] params = new Parameter[origParams.length + 1];
-                params[0] = new Parameter(new ClassNode(constructorCallType == ClassNode.THIS ? Checker.ThisConstructorWrapper.class : Checker.SuperConstructorWrapper.class), "$cw");
-                System.arraycopy(origParams, 0, params, 1, origParams.length);
-                List<Expression> paramTypes = new ArrayList<>(params.length);
-                for (Parameter p : params) {
-                    paramTypes.add(new ClassExpression(p.getType()));
-                }
-                // Create arguments for call to synthetic constructor.
-                List<Expression> thisArgs = new ArrayList<>(origParams.length + 1);
-                thisArgs.add(null); // Placeholder
-                List<Expression> thisArgsWithoutWrapper = new ArrayList<>(origParams.length);
-                for (Parameter p : origParams) {
-                    thisArgs.add(new VariableExpression(p));
-                    thisArgsWithoutWrapper.add(new VariableExpression(p));
-                }
-                if (constructorCallType == ClassNode.THIS) {
-                    thisArgs.set(0, ((VisitorImpl) visitor).makeCheckedCall("checkedThisConstructor",
-                            new ClassExpression(classNode),
-                            constructorCallArgsTransformed.get(),
-                            new ArrayExpression(new ClassNode(Object.class), thisArgsWithoutWrapper),
-                            new ArrayExpression(new ClassNode(Class.class), paramTypes)));
-                } else {
-                    thisArgs.set(0, ((VisitorImpl) visitor).makeCheckedCall("checkedSuperConstructor",
-                            new ClassExpression(classNode),
-                            new ClassExpression(superClass),
-                            constructorCallArgsTransformed.get(),
-                            new ArrayExpression(new ClassNode(Object.class), thisArgsWithoutWrapper),
-                            new ArrayExpression(new ClassNode(Class.class), paramTypes)));
-                }
-                c.setCode(new BlockStatement(new Statement[] {new ExpressionStatement(new ConstructorCallExpression(ClassNode.THIS, new TupleExpression(thisArgs)))}, c.getVariableScope()));
-                List<Expression> cwArgs = new ArrayList<>();
-                int x = 0;
-                for (Expression constructorCallArg : constructorCallArgs) {
-                    cwArgs.add(/*new CastExpression(superArg.getType(), */new MethodCallExpression(new VariableExpression("$cw"), "arg", new ConstantExpression(x++))/*)*/);
-                }
-                List<Statement> body2 = new ArrayList<>(body.size() + 1);
-                body2.add(0, new ExpressionStatement(new ConstructorCallExpression(constructorCallType, new ArgumentListExpression(cwArgs))));
-                body2.addAll(body);
-                ((ScopeTrackingClassCodeExpressionTransformer) visitor).withMethod(c, () -> {
-                    for (int i = 1; i < body2.size(); i++) { // Skip the first statement, which is the constructor call.
-                        body2.get(i).visit(visitor);
-                    }
-                });
-                final int SYNTHETIC = 0x00001000; // Not public in Modifier
-                ConstructorNode c2 = new ConstructorNode(Modifier.PRIVATE | SYNTHETIC, params, c.getExceptions(), new BlockStatement(body2, c.getVariableScope()));
-                // perhaps more misleading than helpful: c2.setSourcePosition(c);
-                classNode.addConstructor(c2);
             }
+            // SECURITY-3341
+            // Only sandbox-transform super() constructor calls if the parent class is nontrivial. Always sandbox-transform this() constructor calls.
+            if (constructorCallType == ClassNode.SUPER && TRIVIAL_CONSTRUCTORS.contains(superClass.getName())) {
+                visitor.visitMethod(c);
+                continue;
+            }
+            final TupleExpression _constructorCallArgs = constructorCallArgs;
+            final AtomicReference<Expression> constructorCallArgsTransformed = new AtomicReference<>();
+            ((ScopeTrackingClassCodeExpressionTransformer) visitor).withMethod(c, new Runnable() {
+                @Override
+                public void run() {
+                    constructorCallArgsTransformed.set(((VisitorImpl) visitor).transformArguments(_constructorCallArgs));
+                }
+            });
+            // Create parameters for new constructor.
+            Parameter[] origParams = c.getParameters();
+            Parameter[] params = new Parameter[origParams.length + 1];
+            params[0] = new Parameter(new ClassNode(constructorCallType == ClassNode.THIS ? Checker.ThisConstructorWrapper.class : Checker.SuperConstructorWrapper.class), "$cw");
+            System.arraycopy(origParams, 0, params, 1, origParams.length);
+            List<Expression> paramTypes = new ArrayList<>(params.length);
+            for (Parameter p : params) {
+                paramTypes.add(new ClassExpression(p.getType()));
+            }
+            // Create arguments for call to synthetic constructor.
+            List<Expression> thisArgs = new ArrayList<>(origParams.length + 1);
+            thisArgs.add(null); // Placeholder
+            List<Expression> thisArgsWithoutWrapper = new ArrayList<>(origParams.length);
+            for (Parameter p : origParams) {
+                if (p.getType().equals(superConstructorWrapperClass) || p.getType().equals(thisConstructorWrapperClass)) {
+                    throw new SecurityException("Illegal constructor parameter for " + classNode + ": " + p);
+                }
+                thisArgs.add(new VariableExpression(p));
+                thisArgsWithoutWrapper.add(new VariableExpression(p));
+            }
+            if (constructorCallType == ClassNode.THIS) {
+                thisArgs.set(0, ((VisitorImpl) visitor).makeCheckedCall("checkedThisConstructor",
+                        new ClassExpression(classNode),
+                        constructorCallArgsTransformed.get(),
+                        new ArrayExpression(new ClassNode(Object.class), thisArgsWithoutWrapper),
+                        new ArrayExpression(new ClassNode(Class.class), paramTypes)));
+            } else {
+                thisArgs.set(0, ((VisitorImpl) visitor).makeCheckedCall("checkedSuperConstructor",
+                        new ClassExpression(classNode),
+                        new ClassExpression(superClass),
+                        constructorCallArgsTransformed.get(),
+                        new ArrayExpression(new ClassNode(Object.class), thisArgsWithoutWrapper),
+                        new ArrayExpression(new ClassNode(Class.class), paramTypes)));
+            }
+            c.setCode(new BlockStatement(new Statement[] {new ExpressionStatement(new ConstructorCallExpression(ClassNode.THIS, new TupleExpression(thisArgs)))}, c.getVariableScope()));
+            List<Expression> cwArgs = new ArrayList<>();
+            int x = 0;
+            for (Expression constructorCallArg : constructorCallArgs) {
+                cwArgs.add(/*new CastExpression(superArg.getType(), */new MethodCallExpression(new VariableExpression("$cw"), "arg", new ConstantExpression(x++))/*)*/);
+            }
+            List<Statement> body2 = new ArrayList<>(body.size() + 1);
+            body2.add(0, new ExpressionStatement(new ConstructorCallExpression(constructorCallType, new ArgumentListExpression(cwArgs))));
+            body2.addAll(body);
+            ((ScopeTrackingClassCodeExpressionTransformer) visitor).withMethod(c, () -> {
+                for (int i = 1; i < body2.size(); i++) { // Skip the first statement, which is the constructor call.
+                    body2.get(i).visit(visitor);
+                }
+            });
+            final int SYNTHETIC = 0x00001000; // Not public in Modifier
+            ConstructorNode c2 = new ConstructorNode(Modifier.PRIVATE | SYNTHETIC, params, c.getExceptions(), new BlockStatement(body2, c.getVariableScope()));
+            // perhaps more misleading than helpful: c2.setSourcePosition(c);
+            classNode.addConstructor(c2);
         }
     }
 
@@ -1044,6 +1054,8 @@ public class SandboxTransformer extends CompilationCustomizer {
 
     static final ClassNode checkerClass = new ClassNode(Checker.class);
     static final ClassNode ScriptBytecodeAdapterClass = new ClassNode(ScriptBytecodeAdapter.class);
+    static final ClassNode superConstructorWrapperClass = new ClassNode(Checker.SuperConstructorWrapper.class);
+    static final ClassNode thisConstructorWrapperClass = new ClassNode(Checker.ThisConstructorWrapper.class);
 
     /**
      * Expression that accesses the closure object itself from within the closure.

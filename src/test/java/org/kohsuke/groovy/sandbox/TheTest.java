@@ -1,8 +1,5 @@
 package org.kohsuke.groovy.sandbox;
 
-import groovy.lang.Binding;
-import groovy.lang.GroovyShell;
-import org.codehaus.groovy.control.customizers.ImportCustomizer;
 import org.codehaus.groovy.runtime.NullObject;
 import org.codehaus.groovy.runtime.ProxyGeneratorAdapter;
 import org.jvnet.hudson.test.Issue;
@@ -15,14 +12,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
-import org.codehaus.groovy.control.CompilerConfiguration;
 import org.codehaus.groovy.runtime.ResourceGroovyMethods;
-import org.kohsuke.groovy.sandbox.impl.GroovyCallSiteSelector;
-import org.junit.Before;
 import org.junit.Test;
 
 import static org.hamcrest.CoreMatchers.containsString;
-import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
@@ -32,25 +25,9 @@ import static org.junit.Assert.assertEquals;
  *
  * @author Kohsuke Kawaguchi
  */
-public class TheTest {
-    GroovyShell sh, plain;
-    Binding binding = new Binding();
-    ClassRecorder cr = new ClassRecorder();
-
-    @Before
-    public void setUp() {
-        CompilerConfiguration cc = new CompilerConfiguration();
-        cc.addCompilationCustomizers(new ImportCustomizer().addImports(TheTest.class.getName()).addStarImports("org.kohsuke.groovy.sandbox"));
-        cc.addCompilationCustomizers(new SandboxTransformer());
-        sh = new GroovyShell(binding,cc);
-
-        cc = new CompilerConfiguration();
-        cc.addCompilationCustomizers(new ImportCustomizer().addImports(TheTest.class.getName()).addStarImports("org.kohsuke.groovy.sandbox"));
-        plain = new GroovyShell(binding,cc);
-
-    }
-
-    private void initVars() {
+public class TheTest extends SandboxTransformerTest {
+    @Override
+    public void configureBinding() {
         binding.setProperty("foo", "FOO");
         binding.setProperty("bar", "BAR");
         binding.setProperty("zot", 5);
@@ -59,46 +36,20 @@ public class TheTest {
         binding.setProperty("intArray", new int[] { 0, 1, 2, 3, 4 });
     }
 
-    /**
-     * Evaluates the expression while intercepting calls.
-     */
-    private Object interceptedEval(String expression) throws Exception {
-        cr.reset();
-        cr.register();
-        try {
-            initVars();
-            return sh.evaluate(expression);
-        } catch (Exception e) {
-            throw new Exception("Failed to evaluate " + expression, e);
-        } finally {
-            cr.unregister();
-        }
-    }
-
-    /**
-     * In addition to {@link #interceptedEval(String)}, verify that the result is the same as regular non-intercepted Groovy call.
-     */
-    private Object eval(String expression) throws Exception {
-        initVars();
-        Object expected = plain.evaluate(expression);
-
-        Object actual = interceptedEval(expression);
-        String actualType = GroovyCallSiteSelector.getName(actual);
-        String expectedType = GroovyCallSiteSelector.getName(expected);
-        assertThat("Sandboxed result (" + actualType + ") does not match expected result (" + expectedType + ")", actual, equalTo(expected));
-        return actual;
-    }
-
     private void assertIntercept(String expectedCallSequence, Object expectedValue, String script) throws Exception {
-        Object actual = eval(script);
-        assertEquals(expectedValue, actual);
-        assertEquals(expectedCallSequence.replace('/','\n').trim(), cr.toString().trim());
+        String[] expectedCalls = expectedCallSequence.isEmpty() ? new String[0] : expectedCallSequence.split("/");
+        assertIntercept(script, expectedValue, expectedCalls);
+    }
+
+    private void assertInterceptNoScript(String expectedCallSequence, Object expectedValue, String script) throws Exception {
+        String[] expectedCalls = expectedCallSequence.isEmpty() ? new String[0] : expectedCallSequence.split("/");
+        assertEvaluate(script, expectedValue);
+        assertInterceptedExact(expectedCalls);
     }
 
     private void assertIntercept(List<String> expectedCallSequence, Object expectedValue, String script) throws Exception {
-        assertIntercept(String.join("\n", expectedCallSequence), expectedValue, script);
+        assertIntercept(script, expectedValue, expectedCallSequence.toArray(new String[0]));
     }
-
 
     @Test public void testOK() throws Exception {
         // instance call
@@ -183,14 +134,14 @@ public class TheTest {
     }
 
     @Test public void testClass() throws Exception {
-        assertIntercept(
+        assertInterceptNoScript(
                 "Integer.class/Class:forName(String)",
                 null,
                 "class foo { static void main(String[] args) throws Exception { 5.class.forName('java.lang.String') } }");
     }
 
     @Test public void testInnerClass() throws Exception {
-        assertIntercept(
+        assertInterceptNoScript(
                 "foo$bar:juu()/Integer.class/Class:forName(String)",
                 null,
                 "class foo {\n" +
@@ -202,7 +153,7 @@ public class TheTest {
     }
 
     @Test public void testStaticInitializationBlock() throws Exception {
-        assertIntercept(
+        assertInterceptNoScript(
                 "Integer.class/Class:forName(String)",
                 null,
                 "class foo {\n" +
@@ -634,22 +585,26 @@ public class TheTest {
     }
 
     @Test public void testCatchStatement() throws Exception {
-        Exception e = (Exception)interceptedEval(
+        sandboxedEval(
             "def o = null\n" +
             "try {\n" +
             "    o.hello()\n" +
             "    return null\n" +
             "} catch (Exception e) {\n" +
-            "    return e\n" +
-            "}");
-        assertThat(e, instanceOf(NullPointerException.class));
+            "    throw new Exception('wrapped', e)\n" +
+            "}",
+            ShouldFail.class,
+            e -> {
+                assertThat(e.getMessage(), containsString("wrapped"));
+                assertThat(e.getCause(), instanceOf(NullPointerException.class));
+            });
     }
 
     /**
      * Makes sure the line number in the source code is preserved after translation.
      */
     @Test public void testIssue21() throws Exception {
-        Exception e = (Exception)interceptedEval(
+        sandboxedEval(
             "\n" + // line 1
             "def x = null\n" +
             "def cl = {\n" +
@@ -658,39 +613,50 @@ public class TheTest {
             "try {\n" +
             "  cl();\n" + // line 7
             "} catch (Exception e) {\n" +
-            "  return e\n" +
-            "}");
+            "  throw new Exception('wrapped', e)\n" +
+            "}",
+            ShouldFail.class,
+            e -> {
+                assertThat(e.getMessage(), containsString("wrapped"));
+                StringWriter sw = new StringWriter();
+                e.printStackTrace(new PrintWriter(sw));
 
-        StringWriter sw = new StringWriter();
-        e.printStackTrace(new PrintWriter(sw));
-
-        String s = sw.toString();
-        assertThat(s, containsString("Script1.groovy:4"));
-        assertThat(s, containsString("Script1.groovy:7"));
+                String s = sw.toString();
+                assertThat(s, containsString("Script1.groovy:4"));
+                assertThat(s, containsString("Script1.groovy:7"));
+            });
     }
 
     @Test public void testIssue15() throws Exception {
-        Object e = interceptedEval(
+        sandboxedEval(
             "try {\n" +
             "  def x = null\n" +
             "  return x.nullProp\n" +
             "} catch (Exception e) {\n" +
-            "  return e\n" +
-            "}");
-        assertThat(e, instanceOf(NullPointerException.class));
-        // x.nullProp shouldn't be intercepted, so the record should be empty
-        assertEquals("", cr.toString().trim());
+            "  throw new Exception('wrapped', e)\n" +
+            "}",
+            ShouldFail.class,
+            e -> {
+                assertThat(e.getMessage(), containsString("wrapped"));
+                assertThat(e.getCause(), instanceOf(NullPointerException.class));
+            });
+        // x.nullProp shouldn't be intercepted
+        assertIntercepted("new Exception(String,NullPointerException)");
 
-        e = interceptedEval(
+        sandboxedEval(
             "try {\n" +
             "  def x = null\n" +
             "  x.nullProp = 1\n" +
             "} catch (Exception e) {\n" +
-            "  return e\n" +
-            "}");
-        assertThat(e, instanceOf(NullPointerException.class));
-        // x.nullProp shouldn't be intercepted, so the record should be empty
-        assertEquals("", cr.toString().trim());
+            "  throw new Exception('wrapped', e)\n" +
+            "}",
+            ShouldFail.class,
+            e -> {
+                assertThat(e.getMessage(), containsString("wrapped"));
+                assertThat(e.getCause(), instanceOf(NullPointerException.class));
+            });
+        // x.nullProp shouldn't be intercepted
+        assertIntercepted("new Exception(String,NullPointerException)");
     }
 
     @Test public void testInOperator() throws Exception {
@@ -774,7 +740,7 @@ public class TheTest {
         pxyCounterField.setAccessible(true);
         AtomicLong pxyCounterValue = (AtomicLong) pxyCounterField.get(null);
         pxyCounterValue.set(0); // make sure *_groovyProxy names are predictable
-        assertIntercept("Locale:getDefault()/Class2_groovyProxy.getDefault()",
+        assertIntercept("Locale:getDefault()/Class1_groovyProxy.getDefault()",
             Locale.getDefault(),
             "interface I {\n" +
             "    Locale getDefault()\n" +

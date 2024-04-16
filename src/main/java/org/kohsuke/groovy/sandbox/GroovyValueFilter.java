@@ -1,16 +1,12 @@
 package org.kohsuke.groovy.sandbox;
 
+import groovy.lang.Binding;
+import groovy.lang.Script;
+
 /**
- * {@link GroovyInterceptor} that looks at individual values that are coming into/out of a call,
- * without regard to any context.
- *
- * <p>
- * One of the common strategies for filtering is to ensure that the sandboxed script don't acquire a reference
- * to objects that they are not supposed to. This implementation works as a convenient base class for such interceptor
- * by providing a smaller number of methods that can be overridden.
- *
- * @author Kohsuke Kawaguchi
+ * @deprecated
  */
+@Deprecated
 public class GroovyValueFilter extends GroovyInterceptor {
     /**
      * Called for every receiver.
@@ -65,6 +61,10 @@ public class GroovyValueFilter extends GroovyInterceptor {
 
     @Override
     public Object onNewInstance(Invoker invoker, Class receiver, Object... args) throws Throwable {
+        if (receiver == Script.class && args.length == 1 && args[0] instanceof Binding) {
+            // Ignore initial script instantiation.
+            return super.onNewInstance(invoker, receiver, args);
+        }
         return filterReturnValue(super.onNewInstance(invoker, (Class)filterReceiver(receiver), filterArguments(args)));
     }
 
