@@ -967,6 +967,75 @@ public class SandboxTransformerTest {
                 "File[][Integer]");
     }
 
+    @Issue("SECURITY-3792")
+    @Test
+    public void sandboxInterceptsImplicitCastsInForEachLoops() {
+        // A typed for-each whose element is a Collection triggers an implicit per-element cast to the
+        // loop type; castToType invokes a matching constructor (e.g. ['secret.key'] -> new File(String)).
+        // The for-each rewrite routes that cast through the sandbox so the constructor is intercepted.
+        assertIntercept(
+                "for (File f in [['secret.key']]) { return f }",
+                new File("secret.key"),
+                "new File(String)");
+    }
+
+    @Issue("SECURITY-3792")
+    @Test
+    public void sandboxInterceptsImplicitCastsInForEachLoopsWithArrayElement() {
+        // A typed for-each whose element is an Object[] also triggers an implicit per-element cast to
+        // the loop type. The for-each rewrite only routes that cast through the sandbox; the refusal
+        // itself is pre-existing Checker behavior (it has never supported array-to-type constructor
+        // coercion), so once the cast reaches preCheckedCast it fails fast with
+        // UnsupportedOperationException rather than ever invoking new File(String).
+        sandboxedEval(
+                "for (File f in [['secret.key'] as Object[]]) { return f }",
+                ShouldFail.class,
+                e -> {
+                    assertThat(e, instanceOf(UnsupportedOperationException.class));
+                    assertThat(e.getMessage(),
+                            containsString("casting arrays to types via constructor is not yet supported"));
+                });
+    }
+
+    @Issue("SECURITY-3792")
+    @Test
+    public void sandboxDoesNotAffectLegitimateForEachLoops() {
+        // A typed loop whose elements already have the loop variable's type still iterates normally:
+        // the rewrite injects a checked cast, but casting an element to a type it already has is a
+        // no-op that intercepts nothing.
+        assertIntercept(
+                "def out = []\n" +
+                "for (String s in ['a', 'b']) { out.add(s) }\n" +
+                "out",
+                Arrays.asList("a", "b"),
+                "ArrayList.add(String)",
+                "ArrayList.add(String)");
+        // Java-style for loops use a dummy variable (not a real declaration) and must be left untouched.
+        assertEvaluate(
+                "int total = 0\n" +
+                "for (int j = 0; j < 3; j++) { total += j }\n" +
+                "total",
+                3);
+    }
+
+    @Issue("SECURITY-3792")
+    @Test
+    public void sandboxPreservesForEachLoopBodyLabels() {
+        // The rewrite wraps the original loop body in a new block (to prepend the checked cast); it
+        // nests the body rather than flattening it so a label on the body block, and break/continue
+        // targeting that label, keep working. Using a File loop ensures the rewrite actually fires
+        // (the intercepted new File(String) proves it), and break lbl on the first element stops
+        // after one iteration.
+        assertIntercept(
+                "def names = []\n" +
+                "for (File f in [['a'], ['b']]) lbl: { names.add(f.name); break lbl }\n" +
+                "names",
+                Arrays.asList("a"),
+                "new File(String)",
+                "File.name",
+                "ArrayList.add(String)");
+    }
+
     @Issue("SECURITY-2824")
     @Test
     public void sandboxUsesCastToTypeForImplicitCasts() {

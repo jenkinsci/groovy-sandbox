@@ -1050,8 +1050,6 @@ public class SandboxTransformer extends CompilationCustomizer {
         return false;
     }
 
-    static final Token ASSIGNMENT_OP = new Token(Types.ASSIGN, "=", -1, -1);
-
     static final ClassNode checkerClass = new ClassNode(Checker.class);
     static final ClassNode ScriptBytecodeAdapterClass = new ClassNode(ScriptBytecodeAdapter.class);
     static final ClassNode superConstructorWrapperClass = new ClassNode(Checker.SuperConstructorWrapper.class);

@@ -1,11 +1,15 @@
 package org.kohsuke.groovy.sandbox;
 
 import org.codehaus.groovy.ast.ClassCodeExpressionTransformer;
+import org.codehaus.groovy.ast.ClassHelper;
+import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.Parameter;
 import org.codehaus.groovy.ast.Variable;
+import org.codehaus.groovy.ast.expr.BinaryExpression;
 import org.codehaus.groovy.ast.expr.BooleanExpression;
+import org.codehaus.groovy.ast.expr.CastExpression;
 import org.codehaus.groovy.ast.expr.DeclarationExpression;
 import org.codehaus.groovy.ast.expr.Expression;
 import org.codehaus.groovy.ast.expr.TupleExpression;
@@ -13,12 +17,16 @@ import org.codehaus.groovy.ast.expr.VariableExpression;
 import org.codehaus.groovy.ast.stmt.BlockStatement;
 import org.codehaus.groovy.ast.stmt.CatchStatement;
 import org.codehaus.groovy.ast.stmt.DoWhileStatement;
+import org.codehaus.groovy.ast.stmt.ExpressionStatement;
 import org.codehaus.groovy.ast.stmt.ForStatement;
 import org.codehaus.groovy.ast.stmt.IfStatement;
+import org.codehaus.groovy.ast.stmt.Statement;
 import org.codehaus.groovy.ast.stmt.SwitchStatement;
 import org.codehaus.groovy.ast.stmt.SynchronizedStatement;
 import org.codehaus.groovy.ast.stmt.TryCatchStatement;
 import org.codehaus.groovy.ast.stmt.WhileStatement;
+import org.codehaus.groovy.syntax.Token;
+import org.codehaus.groovy.syntax.Types;
 
 /**
  * Keeps track of in-scope variables.
@@ -31,6 +39,8 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
      * This is used to distinguish local variables from property access. See issue #11.
      */
     StackVariableSet varScope;
+
+    static final Token ASSIGNMENT_OP = new Token(Types.ASSIGN, "=", -1, -1);
 
     public boolean isLocalVariable(String name) {
         return varScope.has(name);
@@ -110,12 +120,56 @@ abstract class ScopeTrackingClassCodeExpressionTransformer extends ClassCodeExpr
             if (!ForStatement.FOR_LOOP_DUMMY.equals(forLoop.getVariable())) {
                 // When using Java-style for loops, the 3 expressions are a ClosureListExpression and ForStatement.getVariable is a dummy value that we need to ignore.
                 declareVariable(forLoop.getVariable());
+                rewriteForEachImplicitCast(forLoop);
             }
             // Avoid super.visitForLoop because it transforms the collection expression but then recurses on the entire
             // ForStatement, causing the collection expression to be visited a second time.
             forLoop.setCollectionExpression(transform(forLoop.getCollectionExpression()));
             forLoop.getLoopBlock().visit(this);
         }
+    }
+
+    /**
+     * SECURITY-3792: intercepts the per-element implicit cast that Groovy emits for a typed for-each
+     * loop, {@code for (T v in collection)}. Groovy casts each element to {@code T} when storing it
+     * into the loop variable by emitting {@code ScriptBytecodeAdapter.castToType} during bytecode
+     * generation, with no AST expression for the sandbox to intercept, so the cast can invoke
+     * arbitrary constructors (e.g. {@code ['secret.key'] -> new File('secret.key')}) outside the
+     * sandbox. We retype the loop variable to {@code Object} (so Groovy no longer emits the implicit
+     * cast) and prepend an explicit {@code v = (T) v} to the loop body.
+     *
+     * <p>It is invoked from {@link #visitForLoop} (not overridden in the {@link SandboxTransformer}
+     * subclass) so the injected {@link CastExpression} is in place before the body is visited by
+     * {@code getLoopBlock().visit(this)} at the end of {@code visitForLoop}; the subclass's
+     * {@code transform()} then rewrites it to a {@code Checker.checkedCast} like any other cast. A
+     * subclass override calling {@code super} first would run that visit before the cast existed,
+     * which would then need additional intervention to inject the {@code checkedCast} into the
+     * already-transformed body.
+     */
+    void rewriteForEachImplicitCast(ForStatement forLoop) {
+        Parameter variable = forLoop.getVariable();
+        ClassNode declaredType = variable.getOriginType();
+        if (declaredType == null || ClassHelper.isPrimitiveType(declaredType) || ClassHelper.OBJECT_TYPE.equals(declaredType)) {
+            return;
+        }
+        variable.setType(ClassHelper.OBJECT_TYPE);
+        variable.setOriginType(ClassHelper.OBJECT_TYPE);
+
+        CastExpression cast = new CastExpression(declaredType, new VariableExpression(variable));
+        BinaryExpression assignment = new BinaryExpression(new VariableExpression(variable), ASSIGNMENT_OP, cast);
+        assignment.setSourcePosition(variable);
+        ExpressionStatement assignmentStatement = new ExpressionStatement(assignment);
+        assignmentStatement.setSourcePosition(variable);
+
+        Statement body = forLoop.getLoopBlock();
+        BlockStatement newBody = new BlockStatement();
+        if (body instanceof BlockStatement) {
+            newBody.setVariableScope(((BlockStatement) body).getVariableScope());
+        }
+        newBody.addStatement(assignmentStatement);
+        newBody.addStatement(body);
+        newBody.setSourcePosition(body);
+        forLoop.setLoopBlock(newBody);
     }
 
     @Override
