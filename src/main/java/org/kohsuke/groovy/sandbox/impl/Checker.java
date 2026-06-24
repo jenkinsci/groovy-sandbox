@@ -70,8 +70,11 @@ public class Checker {
             Iterator itr = InvokerHelper.asIterator(_receiver);
             while (itr.hasNext()) {
                 Object it = itr.next();
-                if (it!=null)
+                if (it!=null) {
                     r.add(checkedCall(it, true, false, _method, _args));
+                } else {
+                    r.add(null);
+                }
             }
             return r;
         } else {

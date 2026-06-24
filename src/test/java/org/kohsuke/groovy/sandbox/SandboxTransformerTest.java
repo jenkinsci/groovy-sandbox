@@ -24,13 +24,10 @@
 
 package org.kohsuke.groovy.sandbox;
 
-import groovy.lang.Binding;
 import groovy.lang.EmptyRange;
-import groovy.lang.GroovyShell;
 import groovy.lang.IntRange;
 import groovy.lang.ObjectRange;
 import java.io.File;
-import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.file.Files;
@@ -40,18 +37,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import org.codehaus.groovy.control.CompilerConfiguration;
-import org.codehaus.groovy.control.customizers.ImportCustomizer;
-import org.codehaus.groovy.runtime.ProxyGeneratorAdapter;
-import org.junit.Before;
 import org.junit.Ignore;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ErrorCollector;
 import org.jvnet.hudson.test.Issue;
-import org.kohsuke.groovy.sandbox.impl.GroovyCallSiteSelector;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
@@ -60,159 +48,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
-public class SandboxTransformerTest {
-    public @Rule ErrorCollector ec = new ErrorCollector();
-    public Binding binding = new Binding();
-    public GroovyShell sandboxedSh;
-    public GroovyShell unsandboxedSh;
-    public ClassRecorder cr = new ClassRecorder();
-
-    @Before
-    public void setUp() {
-        CompilerConfiguration cc = new CompilerConfiguration();
-        cc.addCompilationCustomizers(new ImportCustomizer().addImports(SandboxTransformerTest.class.getName()).addStarImports("org.kohsuke.groovy.sandbox"));
-        cc.addCompilationCustomizers(new SandboxTransformer());
-        sandboxedSh = new GroovyShell(binding,cc);
-
-        cc = new CompilerConfiguration();
-        cc.addCompilationCustomizers(new ImportCustomizer().addImports(SandboxTransformerTest.class.getName()).addStarImports("org.kohsuke.groovy.sandbox"));
-        unsandboxedSh = new GroovyShell(binding,cc);
-    }
-
-    public void configureBinding() { }
-
-    /**
-     * Use {@code ShouldFail.class} as the expected result for {@link #sandboxedEval} and {@link #unsandboxedEval}
-     * when the expression is expected to throw an exception.
-     */
-    public static final class ShouldFail { }
-
-    @FunctionalInterface
-    public interface ExceptionHandler {
-        public void handleException(Throwable e) throws Exception;
-    }
-
-    /**
-     * Executes a Groovy expression inside of the sandbox.
-     * @param expression The Groovy expression to execute.
-     */
-    public void sandboxedEval(String expression, Object expectedResult, ExceptionHandler handler) {
-        cr.reset();
-        cr.register();
-        try {
-            configureBinding();
-            Object actual = sandboxedSh.evaluate(expression);
-            String actualType = GroovyCallSiteSelector.getName(actual);
-            String expectedType = GroovyCallSiteSelector.getName(expectedResult);
-            ec.checkThat("Sandboxed result (" + actualType + ") does not match expected result (" + expectedType + ")", actual, equalTo(expectedResult));
-        } catch (Throwable e) {
-            ec.checkSucceeds(() -> {
-                try {
-                    handler.handleException(e);
-                } catch (Throwable t) {
-                    t.addSuppressed(e); // Keep the original error around in case an assertion fails in the handler.
-                    throw t;
-                }
-                return null;
-            });
-        } finally {
-            cr.unregister();
-        }
-    }
-
-    /**
-     * Executes a Groovy expression outside of the sandbox.
-     * @param expression The Groovy expression to execute.
-     */
-    private void unsandboxedEval(String expression, Object expectedResult, ExceptionHandler handler) {
-        try {
-            configureBinding();
-            Object actual = unsandboxedSh.evaluate(expression);
-            String actualType = GroovyCallSiteSelector.getName(actual);
-            String expectedType = GroovyCallSiteSelector.getName(expectedResult);
-            ec.checkThat("Unsandboxed result (" + actualType + ") does not match expected result (" + expectedType + ")", actual, equalTo(expectedResult));
-        } catch (Exception e) {
-            ec.checkSucceeds(() -> {
-                handler.handleException(e);
-                return null;
-            });
-        }
-    }
-
-    /**
-     * Execute a Groovy expression both in and out of the sandbox and check that the return value matches the
-     * expected value and that the given list of method calls are intercepted by the sandbox.
-     * @param expression The Groovy expression to execute.
-     * @param expectedReturnValue The expected return value for running the script.
-     * @param expectedCalls The method calls that are expected to be intercepted by the sandbox.
-     */
-    public void assertIntercept(String expression, Object expectedReturnValue, String... expectedCalls) {
-        assertEvaluate(expression, expectedReturnValue);
-        assertIntercepted(expectedCalls);
-    }
-
-    /**
-     * Check that the most recently executed expression intercepted the expected calls.
-     * Automatically adds {@code new Script(Binding)} to the list of intercepted calls.
-     * @param expectedCalls The method calls that were expected to be intercepted by the sandbox.
-     * @see #assertInterceptedExact
-     */
-    public void assertIntercepted(String... expectedCalls) {
-        // Workaround to avoid having to update all existing tests.
-        String[] updatedExpectedCalls = expectedCalls;
-        if (expectedCalls.length == 0 || (expectedCalls.length > 0 && !expectedCalls[0].equals("new Script(Binding)"))) {
-            updatedExpectedCalls = new String[expectedCalls.length + 1];
-            updatedExpectedCalls[0] = "new Script(Binding)";
-            System.arraycopy(expectedCalls, 0, updatedExpectedCalls, 1, expectedCalls.length);
-        }
-        assertInterceptedExact(updatedExpectedCalls);
-    }
-
-    /**
-     * Check that the most recently executed expression intercepted the expected calls.
-     * @param expectedCalls The method calls that were expected to be intercepted by the sandbox.
-     */
-    public void assertInterceptedExact(String... expectedCalls) {
-        String[] interceptedCalls = cr.toString().split("\n");
-        if (interceptedCalls.length == 1 && interceptedCalls[0].equals("")) {
-            interceptedCalls = new String[0];
-        }
-        ec.checkThat(interceptedCalls, equalTo(expectedCalls));
-    }
-
-    /**
-     * Execute a Groovy expression both in and out of the sandbox and check that the return value matches the
-     * expected value.
-     * @param expression The Groovy expression to execute.
-     * @param expectedReturnValue The expected return value for running the script.
-     */
-    public void assertEvaluate(String expression, Object expectedReturnValue) {
-        sandboxedEval(expression, expectedReturnValue, e -> {
-            throw new RuntimeException("Failed to evaluate sandboxed expression: " + expression, e);
-        });
-        unsandboxedEval(expression, expectedReturnValue, e -> {
-            throw new RuntimeException("Failed to evaluate unsandboxed expression: " + expression, e);
-        });
-    }
-
-    /**
-     * Execute a Groovy expression both in and out of the sandbox and check that the script throws an exception with
-     * the same class and message in both cases.
-     * @param expression The Groovy expression to execute.
-     */
-    private void assertFailsWithSameException(String expression) {
-        AtomicReference<Throwable> sandboxedException = new AtomicReference<>();
-        sandboxedEval(expression, ShouldFail.class, sandboxedException::set);
-        AtomicReference<Throwable> unsandboxedException = new AtomicReference<>();
-        unsandboxedEval(expression, ShouldFail.class, unsandboxedException::set);
-        if (sandboxedException.get() == null || unsandboxedException.get() == null) {
-            return; // Either sandboxedEval or unsandboxedEval will have already recorded an error because the result was not ShouldFail.
-        }
-        ec.checkThat("Sandboxed and unsandboxed exception should have the same type",
-                unsandboxedException.get().getClass(), equalTo(sandboxedException.get().getClass()));
-        ec.checkThat("Sandboxed and unsandboxed exception should have the same message",
-                unsandboxedException.get().getMessage(), equalTo(sandboxedException.get().getMessage()));
-    }
+public class SandboxTransformerTest extends AbstractSandboxTest {
 
     @Issue("SECURITY-1465")
     @Test public void sandboxTransformsMethodPointerLhs() throws Exception {
@@ -561,6 +397,23 @@ public class SandboxTransformerTest {
     }
 
     @Issue("SECURITY-1754")
+    @Test public void blocksUnintendedCallsToNonSyntheticConstructors2() throws Exception {
+        sandboxedEval(
+                "class Base { }\n" +
+                "class Subclass extends Base { }\n" + // Subclass needed to break ties for specificity compared to ThisConstructorWrapper matching Object
+                "class Test {\n" +
+                "  Object tcw\n" +
+                "  Test(Object o) { this(o, o) }\n" +
+                "  Test(Object o, Subclass f) { tcw = o }\n" +
+                "}\n" +
+                "new Test(new Subclass()).tcw",
+                ShouldFail.class,
+                e -> assertThat(e.getMessage(), equalTo(
+                        "Rejecting unexpected invocation of constructor: public Test(java.lang.Object,Subclass). " +
+                        "Expected to invoke synthetic constructor: private Test(org.kohsuke.groovy.sandbox.impl.Checker$ThisConstructorWrapper,java.lang.Object)")));
+    }
+
+    @Issue("SECURITY-1754")
     @Test public void localVarsInIfStatementsAreNotInScopeInElseStatements() throws Exception {
         sandboxedEval(
                 "class Super { }\n" +
@@ -684,7 +537,7 @@ public class SandboxTransformerTest {
                 Arrays.asList(1, 2, 3, "compareTo", "compareTo", "previous", "compareTo", "compareTo", "next", "compareTo", "compareTo", "next", "compareTo", "compareTo", "next", "compareTo", "compareTo", "next", "next"),
                 "new SandboxTransformerTest$OperatorOverloader(ArrayList,Integer)",
                 "new SandboxTransformerTest$OperatorOverloader(ArrayList,Integer)",
-                // These next 10 interceptions are from Checker.checkedRange and Checker.checkedComparison.
+                // These next 10 interceptions are from Checker.checkedCreateRange and Checker.checkedComparison.
                 "SandboxTransformerTest$OperatorOverloader.compareTo(SandboxTransformerTest$OperatorOverloader)",
                 "SandboxTransformerTest$OperatorOverloader.compareTo(SandboxTransformerTest$OperatorOverloader)",
                 "SandboxTransformerTest$OperatorOverloader.previous()",
@@ -701,6 +554,17 @@ public class SandboxTransformerTest {
                 "SandboxTransformerTest$OperatorOverloader.value",
                 "ArrayList.add(Integer)",
                 "ArrayList.addAll(ArrayList)");
+        assertIntercept(
+                "def auditLog = []\n" +
+                "def list = (1..1).toList()\n" +
+                "def list2 = (1..<1).toList()\n" +
+                "[list, list2]",
+                Arrays.asList(Arrays.asList(1), Arrays.asList()),
+                "new IntRange(Boolean,Integer,Integer)",
+                "IntRange.toList()",
+                "Integer.compareTo(Integer)",
+                "new EmptyRange(Integer)",
+                "EmptyRange.toList()");
     }
 
     @Test public void unaryExpressionsSmoke() {
@@ -1078,12 +942,23 @@ public class SandboxTransformerTest {
     @Test
     public void sandboxInterceptsAttributeExpressionsInPrefixPostfixOps() {
         assertIntercept(
-                "class Test { int x }\n" +
+                "class Test { int x; int y }\n" +
                 "def t = new Test()\n" +
-                "t.@x++\n" +
-                "t.@x\n",
-                1,
-                "new Test()", "Test.@x", "Integer.next()", "Test.@x=Integer", "Test.@x");
+                "def x1 = t.@x++ + 1\n" +
+                "def y1 = --t.@y - 1\n" +
+                "[t.@x, x1, t.@y, y1]\n",
+                Arrays.asList(1, 1, -1, -2),
+                "new Test()",
+                "Test.@x",
+                "Integer.next()",
+                "Test.@x=Integer",
+                "Integer.plus(Integer)",
+                "Test.@y",
+                "Integer.previous()",
+                "Test.@y=Integer",
+                "Integer.minus(Integer)",
+                "Test.@x",
+                "Test.@y");
     }
 
     @Test
@@ -1171,30 +1046,29 @@ public class SandboxTransformerTest {
 
     @Test
     public void sandboxInterceptsCastsToAbstractClasses() throws Throwable {
-        // Other tests that generate proxy classes will increment the counter.
-        // TODO: Could flake if tests are configured to run in parallel in the same JVM.
-        Field pxyCounterField = ProxyGeneratorAdapter.class.getDeclaredField("pxyCounter");
-        pxyCounterField.setAccessible(true);
-        AtomicLong pxyCounter = (AtomicLong) pxyCounterField.get(null);
-        long counter = pxyCounter.get() + 1;
         assertIntercept(
                 "def proxy = { -> 'overridden' } as org.kohsuke.groovy.sandbox.SandboxTransformerTest.AbstractClass\n" +
                 "[proxy.get(), proxy.get2()]",
                 Arrays.asList("overridden", "overridden"),
                 "new SandboxTransformerTest$AbstractClass()",
-                "SandboxTransformerTest$AbstractClass" + counter + "_groovyProxy.get()",
-                "SandboxTransformerTest$AbstractClass" + counter + "_groovyProxy.get2()");
-        counter = pxyCounter.get() + 1;
+                "new SandboxTransformerTest$AbstractClass(Integer)",
+                "SandboxTransformerTest$AbstractClass1_groovyProxy.get()",
+                "SandboxTransformerTest$AbstractClass1_groovyProxy.get2()");
         assertIntercept(
                 "def proxy = ['get': { -> 'overridden' }] as org.kohsuke.groovy.sandbox.SandboxTransformerTest.AbstractClass\n" +
                 "[proxy.get(), proxy.get2()]",
                 Arrays.asList("overridden", "default"),
                 "new SandboxTransformerTest$AbstractClass()",
-                "SandboxTransformerTest$AbstractClass" + counter + "_groovyProxy.get()",
-                "SandboxTransformerTest$AbstractClass" + counter + "_groovyProxy.get2()");
+                "new SandboxTransformerTest$AbstractClass(Integer)",
+                "SandboxTransformerTest$AbstractClass1_groovyProxy.get()",
+                "SandboxTransformerTest$AbstractClass1_groovyProxy.get2()");
     }
 
     public static abstract class AbstractClass {
+        public AbstractClass() {}
+        public AbstractClass(int x) {
+            // Unused, but intercepted
+        }
         public abstract Object get();
         public Object get2() {
             return "default";
@@ -1388,6 +1262,82 @@ public class SandboxTransformerTest {
                 "  }\n" +
                 "}\n" +
                 "new Test([:]).map\n");
+    }
+
+    @Test
+    public void spreadOperator() throws Exception {
+        assertIntercept(
+                "def list = ['a', null, 'bc']\n" +
+                "list*.length()",
+                Arrays.asList(1, null, 2),
+                "String.length()",
+                "String.length()");
+    }
+
+    @Test
+    public void directCallsToMethodsWithCheckedReplacements() {
+        assertIntercept(
+                "import org.codehaus.groovy.runtime.InvokerHelper\n" +
+                "def o = new SandboxTransformerTest$OperatorOverloader([], 2)\n" +
+                "[\n" +
+                "  InvokerHelper.bitwiseNegate(o),\n"+
+                "  InvokerHelper.unaryMinus(o),\n" +
+                "  InvokerHelper.unaryPlus(o)\n" +
+                "]\n",
+                Arrays.asList(-3, -2, 2),
+                "new SandboxTransformerTest$OperatorOverloader(ArrayList,Integer)",
+                "SandboxTransformerTest$OperatorOverloader.bitwiseNegate()",
+                "SandboxTransformerTest$OperatorOverloader.negative()",
+                "SandboxTransformerTest$OperatorOverloader.positive()");
+        assertIntercept(
+                "import org.codehaus.groovy.runtime.ScriptBytecodeAdapter\n" +
+                "def o = new SandboxTransformerTest$OperatorOverloader([], 3)\n" +
+                "[\n" +
+                "  ScriptBytecodeAdapter.bitwiseNegate(o),\n" +
+                "  ScriptBytecodeAdapter.unaryMinus(o),\n" +
+                "  ScriptBytecodeAdapter.unaryPlus(o)\n" +
+                "]\n",
+                Arrays.asList(-4, -3, 3),
+                "new SandboxTransformerTest$OperatorOverloader(ArrayList,Integer)",
+                "SandboxTransformerTest$OperatorOverloader.bitwiseNegate()",
+                "SandboxTransformerTest$OperatorOverloader.negative()",
+                "SandboxTransformerTest$OperatorOverloader.positive()");
+    }
+
+    @Test
+    public void switchStatementIntercepted() throws Exception {
+        assertIntercept(
+            "switch (String.valueOf(1)) {\n" +
+            "  case Integer:\n" +
+            "    return 'one'\n" +
+            "  case { it.length() == 2 }:\n" +
+            "    return 'two'\n" +
+            "  case ~/y/:\n" +
+            "    return 'three'\n" +
+            "  case Integer.&valueOf:\n" +
+            "    return 'four'\n" +
+            "}\n",
+            "four",
+            "String:valueOf(Integer)",
+            "String.length()",
+            "Integer.compareTo(Integer)",
+            "StringGroovyMethods:bitwiseNegate(String)",
+            "Integer:valueOf(String)");
+    }
+
+    @Test
+    public void whileLoopBodyIntercepted() throws Exception {
+        assertIntercept(
+            "def x = 0\n" +
+            "while (x < 1) {\n" +
+            "  x += 'abc'.length()\n" +
+            "}\n" +
+            "x",
+            3,
+            "Integer.compareTo(Integer)",
+            "String.length()",
+            "Integer.compareTo(Integer)"
+        );
     }
 
 }

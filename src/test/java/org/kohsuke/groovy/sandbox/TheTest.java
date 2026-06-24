@@ -1,17 +1,14 @@
 package org.kohsuke.groovy.sandbox;
 
 import org.codehaus.groovy.runtime.NullObject;
-import org.codehaus.groovy.runtime.ProxyGeneratorAdapter;
 import org.jvnet.hudson.test.Issue;
 import java.awt.Point;
 import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.atomic.AtomicLong;
 import org.codehaus.groovy.runtime.ResourceGroovyMethods;
 import org.junit.Test;
 
@@ -25,7 +22,7 @@ import static org.junit.Assert.assertEquals;
  *
  * @author Kohsuke Kawaguchi
  */
-public class TheTest extends SandboxTransformerTest {
+public class TheTest extends AbstractSandboxTest {
     @Override
     public void configureBinding() {
         binding.setProperty("foo", "FOO");
@@ -736,10 +733,6 @@ public class TheTest extends SandboxTransformerTest {
 
     @Issue("SECURITY-566")
     @Test public void testTypeCoercion() throws Exception {
-        Field pxyCounterField = ProxyGeneratorAdapter.class.getDeclaredField("pxyCounter");
-        pxyCounterField.setAccessible(true);
-        AtomicLong pxyCounterValue = (AtomicLong) pxyCounterField.get(null);
-        pxyCounterValue.set(0); // make sure *_groovyProxy names are predictable
         assertIntercept("Locale:getDefault()/Class1_groovyProxy.getDefault()",
             Locale.getDefault(),
             "interface I {\n" +
