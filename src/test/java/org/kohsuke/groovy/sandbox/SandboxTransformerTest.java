@@ -1672,6 +1672,39 @@ public class SandboxTransformerTest {
                 "new Test([:]).map\n");
     }
 
+    @Issue("SECURITY-3931")
+    @Test
+    public void nullReceiverCallsShouldBeIntercepted() {
+        sandboxedEval("def x = null; x.someMethod()", ShouldFail.class, e -> ec.checkThat(e.toString(), equalTo("java.lang.NullPointerException: Cannot invoke method someMethod() on null object")));
+        assertIntercepted("NullObject.someMethod()");
+
+        sandboxedEval("def x = null; x.call()", ShouldFail.class, e -> ec.checkThat(e.toString(), equalTo("java.lang.NullPointerException: Cannot invoke method call() on null object")));
+        assertIntercepted("NullObject.call()");
+
+        sandboxedEval("def x = null; x.someProp", ShouldFail.class, e -> ec.checkThat(e.toString(), equalTo("java.lang.NullPointerException: Cannot get property 'someProp' on null object")));
+        assertIntercepted("null.someProp");
+
+        sandboxedEval("def x = null; x.someProp = 1", ShouldFail.class, e -> ec.checkThat(e.toString(), equalTo("java.lang.NullPointerException: Cannot set property 'someProp' on null object")));
+        assertIntercepted("null.someProp=Integer");
+
+        sandboxedEval("def x = null; x[0]", ShouldFail.class, e -> ec.checkThat(e.toString(), equalTo("java.lang.NullPointerException: Cannot invoke method getAt() on null object")));
+        assertIntercepted("null[Integer]");
+
+        sandboxedEval("def x = null; x[0] = 1", ShouldFail.class, e -> ec.checkThat(e.toString(), equalTo("java.lang.NullPointerException: Cannot invoke method putAt() on null object")));
+        assertIntercepted("null[Integer]=Integer");
+
+        sandboxedEval("def x = null; x.@someAttr", ShouldFail.class, e -> ec.checkThat(e.toString(), equalTo("groovy.lang.MissingFieldException: No such field: someAttr for class: org.codehaus.groovy.runtime.NullObject")));
+        assertIntercepted("null.@someAttr");
+
+        sandboxedEval("def x = null; x.@someAttr = 1", ShouldFail.class, e -> ec.checkThat(e.toString(), equalTo("groovy.lang.MissingFieldException: No such field: someAttr for class: org.codehaus.groovy.runtime.NullObject")));
+        assertIntercepted("null.@someAttr=Integer");
+
+        // NullObject defines real methods (e.g. asBoolean() for boolean coercion) — verify they still
+        // return the correct value after null receivers are routed through the interceptor chain.
+        assertEvaluate("def x = null; x.asBoolean()", false);
+        assertEvaluate("def x = null; x ? 'yes' : 'no'", "no");
+    }
+
     // Base with an inherited dangerous overload
     public static class InheritedOverloadBase {
         public static final AtomicBoolean STATIC_OVERLOAD_INVOKED = new AtomicBoolean();

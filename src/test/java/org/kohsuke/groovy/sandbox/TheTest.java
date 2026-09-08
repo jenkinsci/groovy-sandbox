@@ -11,11 +11,15 @@ import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import groovy.lang.MissingMethodException;
 import org.codehaus.groovy.runtime.ResourceGroovyMethods;
 import org.junit.Test;
+import static org.junit.Assert.assertFalse;
 
 import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
@@ -271,11 +275,13 @@ public class TheTest extends SandboxTransformerTest {
     }
 
     /**
-     * See issue #6. We are not intercepting calls to null.
+     * SECURITY-3931: null receivers are substituted with {@link org.codehaus.groovy.runtime.NullObject#getNullObject()}
+     * before entering {@link org.kohsuke.groovy.sandbox.impl.InvokerChain}, so interceptors see {@code NullObject}
+     * rather than {@code null}.
      */
     @Test public void testNull() throws Exception {
-        assertIntercept("", NullObject.class, "def x=null; null.getClass()");
-        assertIntercept("", "null3", "def x=null; x.plus('3')");
+        assertIntercept("NullObject.getClass()", NullObject.class, "def x=null; x.getClass()");
+        assertIntercept("NullObject.plus(String)", "null3", "def x=null; x.plus('3')");
         assertIntercept("", false, "def x=null; x==3");
     }
 
@@ -640,8 +646,7 @@ public class TheTest extends SandboxTransformerTest {
                 assertThat(e.getMessage(), containsString("wrapped"));
                 assertThat(e.getCause(), instanceOf(NullPointerException.class));
             });
-        // x.nullProp shouldn't be intercepted
-        assertIntercepted("new Exception(String,NullPointerException)");
+        assertIntercepted("null.nullProp", "new Exception(String,NullPointerException)");
 
         sandboxedEval(
             "try {\n" +
@@ -655,8 +660,7 @@ public class TheTest extends SandboxTransformerTest {
                 assertThat(e.getMessage(), containsString("wrapped"));
                 assertThat(e.getCause(), instanceOf(NullPointerException.class));
             });
-        // x.nullProp shouldn't be intercepted
-        assertIntercepted("new Exception(String,NullPointerException)");
+        assertIntercepted("null.nullProp=Integer", "new Exception(String,NullPointerException)");
     }
 
     @Test public void testInOperator() throws Exception {
@@ -810,6 +814,50 @@ public class TheTest extends SandboxTransformerTest {
                 "NonArrayConstructorList foo = new NonArrayConstructorList(true, false)\n" +
                 "List castFoo = (List)foo\n" +
                 "return castFoo.join('')\n");
+    }
+
+    /**
+     * SECURITY-3931: Safe navigation (?.) short-circuits in Checker before any InvokerChain is
+     * constructed (safe &amp;&amp; receiver==null → return null), so no interceptor is notified.
+     */
+    @Test public void testNullSafeNavigation() throws Exception {
+        assertIntercept("", null, "def x = null; x?.getClass()");
+        assertIntercept("", null, "def x = null; x?.plus('3')");
+    }
+
+    /**
+     * SECURITY-3931: A Groovy category method whose first parameter is a specific type
+     * (not Object/NullObject) must not be dispatched when the receiver is null.
+     * With NullObject.INSTANCE substitution the Groovy runtime looks up the method on
+     * NullObject — the StringCategory.danger(String) overload does not match, so
+     * NullObject.methodMissing fires (throwing NullPointerException) and the category
+     * body is never entered.
+     */
+    @Issue("SECURITY-3931")
+    @Test public void nullReceiverCannotInvokeStringCategoryMethod() {
+        StringCategory.INVOKED.set(false);
+        binding.setProperty("StringCategory", StringCategory.class);
+        sandboxedEval(
+                "def receiver = null\n" +
+                "receiver.use(StringCategory) {\n" +
+                "    def x = null\n" +
+                "    x.danger()\n" +
+                "}",
+                ShouldFail.class,
+                e -> assertThat(e, instanceOf(NullPointerException.class)));
+        assertThat(cr.toString(), containsString("NullObject.use(Class,"));
+        assertFalse("Category method with String receiver must not execute for a null receiver",
+                StringCategory.INVOKED.get());
+    }
+
+    /** Category used by {@link #nullReceiverCannotInvokeStringCategoryMethod}. */
+    public static class StringCategory {
+        static final AtomicBoolean INVOKED = new AtomicBoolean(false);
+        /** Category method whose first parameter is String — not Object/NullObject. */
+        public static String danger(String self) {
+            INVOKED.set(true);
+            return "escaped";
+        }
     }
 
     @Issue("JENKINS-50470")
