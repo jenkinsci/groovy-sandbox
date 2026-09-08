@@ -30,14 +30,20 @@ import groovy.lang.GroovyShell;
 import groovy.lang.IntRange;
 import groovy.lang.ObjectRange;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.TreeSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -243,7 +249,7 @@ public class SandboxTransformerTest {
         }
     }
 
-    @Issue("SECURITY-1465")
+    @Issue({"SECURITY-1465", "SECURITY-3923"})
     @Test public void sandboxWillNotCastNonStandardCollections() throws Exception {
         // Note: If you run this test in a debugger and inspect the proxied closure in Checker#preCheckedCast, the test
         // will probably fail because the debugger will invoke the closure while trying to display the value, which will
@@ -253,7 +259,10 @@ public class SandboxTransformerTest {
          * The cast to File invokes `new File(... proxied collection's elements as constructor arguments)`.
          * The cast to Object[] reads lines from the File.
          * The trick here is that the closure returns null from the first call to `toArray` in `Checker.preCheckedCast`,
-         * so it bypassed the interceptor but still worked correctly in the actual cast before the fix.
+         * so it bypassed the interceptor but still worked correctly in the actual cast before the fix (SECURITY-1465).
+         * With the SECURITY-3923 snapshot fix, toArray() is called exactly once and the result is reused for both
+         * the pre-check and the cast; if toArray() returns null, we throw IllegalStateException rather than
+         * silently skipping the check.
          */
         sandboxedEval(
                 "def i = 0\n" +
@@ -266,20 +275,22 @@ public class SandboxTransformerTest {
                 "} as Collection) as File) as Object[]",
                 ShouldFail.class,
                 e -> {
-                    assertThat(e, instanceOf(UnsupportedOperationException.class));
+                    assertThat(e, instanceOf(IllegalStateException.class));
                     assertThat(e.getMessage(),
-                            containsString("Casting non-standard Collections to a type via constructor is not supported."));
+                            containsString("toArray() must not return null"));
                 });
     }
 
-    @Issue("SECURITY-1465")
-    @Test public void sandboxWillNotCastNonStandardCollectionsEvenIfHarmless() throws Exception {
-        // Not problematic even before the fix because it is consistent, but there is no good way to differentiate
-        // between this and the expression in sandboxWillNotCastNonStandardCollections, so they both get blocked.
+    @Issue({"SECURITY-1465", "SECURITY-3923"})
+    @Test public void sandboxWillCastNonStandardCollectionsWhenToArrayIsConsistent() throws Exception {
+        // A closure-backed collection whose toArray() is consistent is now handled safely via snapshot.
+        // Previously this was blocked (same as sandboxWillNotCastNonStandardCollections) because there was
+        // no way to differentiate it without the snapshot approach. With SECURITY-3923, the sandbox snapshots
+        // toArray() once and uses that for both the pre-check and the cast, so consistent collections work.
         sandboxedEval("(({-> return ['secret.txt'] as Object[] } as Collection) as File) as Object[]", ShouldFail.class, e -> {
-            assertThat(e, instanceOf(UnsupportedOperationException.class));
-            assertThat(e.getMessage(),
-                    containsString("Casting non-standard Collections to a type via constructor is not supported."));
+            // The sandboxed cast of ['secret.txt'] to File intercepts new File(String) (pre-check passes),
+            // then File as Object[] tries to read the file — expected to fail since it does not exist.
+            assertThat(e, instanceOf(FileNotFoundException.class));
         });
     }
 
@@ -1073,6 +1084,275 @@ public class SandboxTransformerTest {
                 "Test.auditLog",
                 "ArrayList.add(String)",
                 "Test.auditLog");
+    }
+
+    /** {@code toArray()} returns decoy elements; {@code iterator()} and {@code size()} return real elements. */
+    public static final class MaskedList extends ArrayList<Object> {
+        private final List<Object> real;
+
+        public MaskedList(List<Object> decoy, List<Object> real) {
+            super(decoy);
+            this.real = real;
+        }
+
+        @Override public int size() { return real.size(); }
+
+        @Override public Iterator<Object> iterator() { return real.iterator(); }
+    }
+
+    /** {@code toArray()} returns decoy on the first call, real on subsequent calls. */
+    public static final class AlternatingList extends ArrayList<Object> {
+        private final List<Object> real;
+        private int callCount = 0;
+
+        public AlternatingList(List<Object> decoy, List<Object> real) {
+            super(decoy);
+            this.real = real;
+        }
+
+        @Override
+        public Object[] toArray() {
+            return callCount++ == 0 ? super.toArray() : real.toArray();
+        }
+    }
+
+    /** Set-backed variant of AlternatingList: {@code toArray()} returns decoy on first call, real on subsequent calls. */
+    public static final class AlternatingHashSet extends LinkedHashSet<Object> {
+        private final List<Object> real;
+        private int callCount = 0;
+
+        public AlternatingHashSet(List<Object> decoy, List<Object> real) {
+            super(decoy);
+            this.real = real;
+        }
+
+        @Override
+        public Object[] toArray() {
+            return callCount++ == 0 ? super.toArray() : real.toArray();
+        }
+    }
+
+    /** Set-backed variant of MaskedList: toArray() returns decoy, iterator()/size() return real. */
+    public static final class MaskedHashSet extends LinkedHashSet<Object> {
+        private final Object[] decoyArray;
+        private final List<Object> real;
+
+        public MaskedHashSet(List<Object> decoy, List<Object> real) {
+            super(decoy);
+            // Store decoy explicitly: LinkedHashSet inherits AbstractCollection.toArray() which
+            // calls this.iterator(), so we must override toArray() to bypass that.
+            this.decoyArray = decoy.toArray();
+            this.real = real;
+        }
+
+        @Override public Object[] toArray() { return decoyArray.clone(); }
+        @Override public int size() { return real.size(); }
+        @Override public Iterator<Object> iterator() { return real.iterator(); }
+    }
+
+    /** SortedSet-backed variant of AlternatingList: toArray() returns decoy on first call, real on subsequent calls. */
+    public static final class AlternatingTreeSet extends TreeSet<Object> {
+        private final List<Object> real;
+        private int callCount = 0;
+
+        public AlternatingTreeSet(List<Object> decoy, List<Object> real) {
+            super(decoy);
+            this.real = real;
+        }
+
+        @Override
+        public Object[] toArray() {
+            return callCount++ == 0 ? super.toArray() : real.toArray();
+        }
+    }
+
+    /** SortedSet-backed variant of MaskedList: toArray() returns decoy, iterator()/size() return real. */
+    public static final class MaskedTreeSet extends TreeSet<Object> {
+        private final Object[] decoyArray;
+        private final List<Object> real;
+
+        public MaskedTreeSet(List<Object> decoy, List<Object> real) {
+            super(decoy);
+            // Store decoy explicitly: TreeSet inherits AbstractCollection.toArray() which
+            // calls this.iterator(), so we must override toArray() to bypass that.
+            this.decoyArray = decoy.toArray();
+            this.real = real;
+        }
+
+        @Override public Object[] toArray() { return decoyArray.clone(); }
+        @Override public int size() { return real.size(); }
+        @Override public Iterator<Object> iterator() { return real.iterator(); }
+    }
+
+    /**
+     * Plain ArrayList wrapper with no overrides. Used to verify that {@code toArray()} called as
+     * plain Java in {@code Checker.preCheckedCast} is invisible to the interceptor log, while the
+     * resulting constructor call is visible.
+     */
+    public static final class SideEffectingCollection extends ArrayList<Object> {
+        public SideEffectingCollection(Object... elements) {
+            super(Arrays.asList(elements));
+        }
+    }
+
+    @Issue("SECURITY-3923")
+    @Test
+    public void sandboxSnapshotsCollectionBeforeConstructorCast() {
+        AlternatingList masked = new AlternatingList(
+                Arrays.asList("secret.key"),
+                Arrays.asList("other.key"));
+        binding.setVariable("col", Collections.unmodifiableCollection(masked));
+        sandboxedEval("col as File", new File("secret.key"), e -> {
+            throw new RuntimeException("Unexpected exception in sandboxed cast", e);
+        });
+        assertIntercepted("Script1.col", "new File(String)");
+    }
+
+    @Issue("SECURITY-3923")
+    @Test
+    public void sandboxSnapshotsCollectionBeforeArrayCast() {
+        Collection<Object> masked = new MaskedList(
+                Arrays.asList("secret.key"),
+                Arrays.asList("other.key"));
+        binding.setVariable("col", Collections.unmodifiableCollection(masked));
+        sandboxedEval("(col as File[])[0]", new File("secret.key"), e -> {
+            throw new RuntimeException("Unexpected exception in sandboxed cast", e);
+        });
+        assertIntercepted("Script1.col", "new File(String)", "File[][Integer]");
+    }
+
+    @Issue("SECURITY-3923")
+    @Test
+    public void sandboxSnapshotsMultiElementCollectionBeforeConstructorCast() {
+        AlternatingList masked = new AlternatingList(
+                Arrays.asList("safe-parent", "safe-child"),
+                Arrays.asList("dangerous-parent", "dangerous-child"));
+        binding.setVariable("col", Collections.unmodifiableCollection(masked));
+        sandboxedEval("col as File", new File("safe-parent", "safe-child"), e -> {
+            throw new RuntimeException("TOCTOU attack succeeded: " + e, e);
+        });
+    }
+
+    @Issue("SECURITY-3923")
+    @Test
+    public void toArrayNotInterceptedOnCollectionCast() {
+        // Checker.preCheckedCast calls toArray() as plain Java, so it never appears in the
+        // interceptor log. The cast itself succeeds and new File(String) is intercepted as usual.
+        binding.setVariable("col", new SideEffectingCollection("secret.key"));
+        sandboxedEval("col as File", new File("secret.key"), e -> {
+            throw new RuntimeException("Unexpected exception", e);
+        });
+        assertIntercepted(
+                "Script1.col",
+                "new File(String)");
+    }
+
+    @Issue("SECURITY-3923")
+    @Test
+    public void toArrayNotInterceptedOnArrayCast() {
+        // Same as toArrayNotInterceptedOnCollectionCast but for the array-cast path.
+        binding.setVariable("col", new SideEffectingCollection("secret.key"));
+        sandboxedEval("col as File[]", new File[]{new File("secret.key")}, e -> {
+            throw new RuntimeException("Unexpected exception", e);
+        });
+        assertIntercepted(
+                "Script1.col",
+                "new File(String)");
+    }
+
+    /**
+     * All three families of JDK delegating wrappers (unmodifiable, synchronized, checked) delegate
+     * {@code toArray()} to their backing collection. The snapshot taken in {@code preCheckedCast}
+     * must capture the first traversal; the constructor cast must use those elements, not whatever
+     * a subsequent traversal of the backing collection would return.
+     */
+    @Issue("SECURITY-3923")
+    @Test
+    public void sandboxSnapshotsAllDelegatingWrappersBeforeConstructorCast() {
+        List<Object> decoy = Arrays.asList("secret.key");
+        List<Object> real  = Arrays.asList("other.key");
+
+        // Backing collection returns decoy on first toArray(), real on subsequent calls.
+        // Cast result must equal new File("secret.key") (from the snapshot), not new File("other.key").
+        Object[][] wrappers = {
+            {"unmodifiableCollection", Collections.unmodifiableCollection(new AlternatingList(decoy, real))},
+            {"unmodifiableList",       Collections.unmodifiableList(new AlternatingList(decoy, real))},
+            {"unmodifiableSet",        Collections.unmodifiableSet(new AlternatingHashSet(decoy, real))},
+            {"unmodifiableSortedSet",  Collections.unmodifiableSortedSet(new AlternatingTreeSet(decoy, real))},
+            {"synchronizedCollection", Collections.synchronizedCollection(new AlternatingList(decoy, real))},
+            {"synchronizedList",       Collections.synchronizedList(new AlternatingList(decoy, real))},
+            {"synchronizedSet",        Collections.synchronizedSet(new AlternatingHashSet(decoy, real))},
+            {"synchronizedSortedSet",  Collections.synchronizedSortedSet(new AlternatingTreeSet(decoy, real))},
+            {"checkedCollection",      Collections.checkedCollection(new AlternatingList(decoy, real), Object.class)},
+            {"checkedList",            Collections.checkedList(new AlternatingList(decoy, real), Object.class)},
+            {"checkedSet",             Collections.checkedSet(new AlternatingHashSet(decoy, real), Object.class)},
+            {"checkedSortedSet",       Collections.checkedSortedSet(new AlternatingTreeSet(decoy, real), Object.class)},
+            // Double-wrap: inner wrapper delegates to outer, outer delegates to backing.
+            {"unmodifiable(unmodifiable(evil))", Collections.unmodifiableCollection(
+                    Collections.unmodifiableCollection(new AlternatingList(decoy, real)))},
+        };
+
+        for (Object[] entry : wrappers) {
+            String label = (String) entry[0];
+            binding.setVariable("col", entry[1]);
+            sandboxedEval("col as File", new File("secret.key"), e -> {
+                throw new RuntimeException("Constructor-cast used wrong traversal via " + label + ": " + e, e);
+            });
+        }
+    }
+
+    @Issue("SECURITY-3923")
+    @Test
+    public void sandboxSnapshotsAllDelegatingWrappersBeforeArrayCast() {
+        List<Object> decoy = Arrays.asList("secret.key");
+        List<Object> real  = Arrays.asList("other.key");
+
+        // Backing collection's toArray() returns decoy; iterator()/size() return real.
+        // Array cast result must equal [new File("secret.key")] (from the snapshot), not [new File("other.key")].
+        Object[][] wrappers = {
+            {"unmodifiableCollection", Collections.unmodifiableCollection(new MaskedList(decoy, real))},
+            {"unmodifiableList",       Collections.unmodifiableList(new MaskedList(decoy, real))},
+            {"unmodifiableSet",        Collections.unmodifiableSet(new MaskedHashSet(decoy, real))},
+            {"unmodifiableSortedSet",  Collections.unmodifiableSortedSet(new MaskedTreeSet(decoy, real))},
+            {"synchronizedCollection", Collections.synchronizedCollection(new MaskedList(decoy, real))},
+            {"synchronizedList",       Collections.synchronizedList(new MaskedList(decoy, real))},
+            {"synchronizedSet",        Collections.synchronizedSet(new MaskedHashSet(decoy, real))},
+            {"synchronizedSortedSet",  Collections.synchronizedSortedSet(new MaskedTreeSet(decoy, real))},
+            {"checkedCollection",      Collections.checkedCollection(new MaskedList(decoy, real), Object.class)},
+            {"checkedList",            Collections.checkedList(new MaskedList(decoy, real), Object.class)},
+            {"checkedSet",             Collections.checkedSet(new MaskedHashSet(decoy, real), Object.class)},
+            {"checkedSortedSet",       Collections.checkedSortedSet(new MaskedTreeSet(decoy, real), Object.class)},
+            // Double-wrap
+            {"unmodifiable(unmodifiable(evil))", Collections.unmodifiableCollection(
+                    Collections.unmodifiableCollection(new MaskedList(decoy, real)))},
+        };
+
+        for (Object[] entry : wrappers) {
+            String label = (String) entry[0];
+            binding.setVariable("col", entry[1]);
+            sandboxedEval("(col as File[])[0]", new File("secret.key"), e -> {
+                throw new RuntimeException("Array-cast used wrong traversal via " + label + ": " + e, e);
+            });
+        }
+    }
+
+    @Issue("SECURITY-3923")
+    @Test
+    public void sandboxAllowsUserDefinedCollectionInConstructorCast() {
+        // Behavior change: non-java.util Collections previously threw UnsupportedOperationException.
+        binding.setVariable("custom", new AlternatingList(
+                Arrays.asList("secret.key"), Arrays.asList("secret.key")));
+        assertIntercept("custom as File", new File("secret.key"), "Script1.custom", "new File(String)");
+    }
+
+    @Issue("SECURITY-3923")
+    @Test
+    public void sandboxAllowsUserDefinedCollectionInArrayCast() {
+        // Behavior change: non-java.util Collections previously threw UnsupportedOperationException.
+        binding.setVariable("custom", new MaskedList(
+                Arrays.asList("secret.key"), Arrays.asList("secret.key")));
+        assertIntercept("(custom as File[])[0]", new File("secret.key"),
+                "Script1.custom", "new File(String)", "File[][Integer]");
     }
 
     @Test
