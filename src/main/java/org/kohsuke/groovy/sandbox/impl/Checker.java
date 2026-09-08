@@ -35,6 +35,7 @@ import org.codehaus.groovy.syntax.Types;
 
 import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -851,7 +852,8 @@ public class Checker {
                 !(Collection.class.isAssignableFrom(clazz) && clazz.getPackage().getName().equals("java.util"))) {
             // Don't actually cast at all if this is already assignable.
             if (clazz.isAssignableFrom(exp.getClass())) {
-                return () -> exp;
+                final Object assignableExp = exp;
+                return () -> assignableExp;
             } else if (clazz.isInterface()) {
                 for (Method m : clazz.getMethods()) {
                     Object[] args = new Object[m.getParameterTypes().length];
@@ -913,53 +915,49 @@ public class Checker {
             } else if (!clazz.isArray() && clazz != Object.class && !Modifier.isAbstract(clazz.getModifiers()) && (exp instanceof Collection || exp.getClass().isArray() || exp instanceof Map)) {
                 Object[] args = null;
                 if (exp instanceof Collection) {
-                    if (isCollectionSafeToCast((Collection) exp)) {
-                        args = ((Collection) exp).toArray();
-                    } else {
-                        throw new UnsupportedOperationException(
-                                "Casting non-standard Collections to a type via constructor is not supported. " +
-                                "Consider converting " + exp.getClass() + " to a Collection defined in the java.util package and then casting to " + clazz + ".");
+                    // Snapshot once so pre-check and cast see identical elements (SECURITY-3923).
+                    final Object[] snapshot = ((Collection) exp).toArray();
+                    if (snapshot == null) {
+                        throw new IllegalStateException(exp.getClass() + ".toArray() must not return null");
                     }
+                    args = snapshot;
+                    exp = new ArrayList<>(Arrays.asList(snapshot));
                 } else if (exp instanceof Map) {
                     args = new Object[] {exp};
                 } else { // arrays
                     // TODO tricky to determine which constructor will actually be called; array might be expanded, or might not
                     throw new UnsupportedOperationException("casting arrays to types via constructor is not yet supported");
                 }
-                if (args != null) {
-                    // We intercept the constructor that will be used for the cast, and again, deliberately ignore the return value:
-                    new VarArgInvokerChain(clazz) {
-                        public Object call(Object receiver, String method, Object... args) throws Throwable {
-                            if (chain.hasNext()) {
-                                return chain.next().onNewInstance(this, (Class) receiver, args);
-                            } else {
-                                return null;
-                            }
+                // We intercept the constructor that will be used for the cast, and again, deliberately ignore the return value:
+                new VarArgInvokerChain(clazz) {
+                    public Object call(Object receiver, String method, Object... args) throws Throwable {
+                        if (chain.hasNext()) {
+                            return chain.next().onNewInstance(this, (Class) receiver, args);
+                        } else {
+                            return null;
                         }
-                    }.call(clazz, null, args);
-                } else {
-                    throw new IllegalStateException(exp.getClass() + ".toArray() must not return null");
-                }
+                    }
+                }.call(clazz, null, args);
             } else if (clazz.isArray() && !clazz.getComponentType().isPrimitive() && (exp instanceof Collection || exp instanceof Object[])) {
                 Object[] array;
                 if (exp instanceof Collection) {
-                    if (isCollectionSafeToCast((Collection) exp)) {
-                        array = ((Collection) exp).toArray();
-                    } else {
-                        throw new UnsupportedOperationException(
-                                "Casting non-standard implementations of Collection to an array is not supported. " +
-                                "Consider converting " + exp.getClass() + " to a Collection defined in the java.util package and then casting to " + clazz + ".");
+                    // Snapshot once so pre-check and cast see identical elements (SECURITY-3923).
+                    final Object[] snapshot = ((Collection) exp).toArray();
+                    if (snapshot == null) {
+                        throw new IllegalStateException(exp.getClass() + ".toArray() must not return null");
                     }
+                    array = snapshot;
+                    exp = new ArrayList<>(Arrays.asList(snapshot));
                 } else {
-                    array = (Object[])exp;
+                    array = (Object[]) exp;
                 }
                 // We intercept the per-element casts.
                 for (Object element : array) {
-                    preCheckedCast(clazz.getComponentType(), element, coerce, strict, ignoreAutoboxing);
+                    preCheckedCast(clazz.getComponentType(), element, ignoreAutoboxing, coerce, strict);
                 }
             } else if (clazz == File.class && exp instanceof CharSequence) {
                 Object[] args = new Object[]{exp.toString()};
-                // We intercept the constructor that will be used for the cast, and again, deliberately ignore the return value:
+                // Intercept the constructor that will be used for the cast, and again, deliberately ignore the return value:
                 new VarArgInvokerChain(clazz) {
                     public Object call(Object receiver, String method, Object... args) throws Throwable {
                         if (chain.hasNext()) {
@@ -1000,7 +998,8 @@ public class Checker {
             }
         }
         // TODO what does ignoreAutoboxing do?
-        return () -> strict ? clazz.cast(exp) : coerce ? ScriptBytecodeAdapter.asType(exp, clazz) : ScriptBytecodeAdapter.castToType(exp, clazz);
+        final Object castSource = exp;
+        return () -> strict ? clazz.cast(castSource) : coerce ? ScriptBytecodeAdapter.asType(castSource, clazz) : ScriptBytecodeAdapter.castToType(castSource, clazz);
     }
     // https://stackoverflow.com/a/38243203/12916
     @SuppressWarnings("unchecked")
@@ -1014,23 +1013,6 @@ public class Checker {
      */
     private static Object[] fixNull(Object[] args) {
         return args==null ? new Object[1] : args;
-    }
-
-    /**
-     * When casting collections to types via constructor, we cannot allow user-defined implementations of {@link Collection}.
-     * This is because a user-defined implementation of {@link Collection} can do tricky things to return a different
-     * set of elements for {@link Collection#toArray} inside of {@link #preCheckedCast} than whatever
-     * {@link ScriptBytecodeAdapter#asType} ends up using as the elements, so we are not able to guarantee that the
-     * Constructor we pre-checked is the one that will end up being invoked.
-     */
-    private static boolean isCollectionSafeToCast(Collection c) {
-        Package p = c.getClass().getPackage();
-        String packageName = null;
-        if (p != null) {
-            packageName = p.getName();
-        }
-        // TODO: Are there any other packages with collections that we should allow?
-        return "java.util".equals(packageName);
     }
 
     /**
