@@ -159,7 +159,9 @@ public abstract class GroovyInterceptor {
      *     <dd>
      *         The object whose method/property is accessed.
      *         For constructor invocations and static calls, this is {@link Class}.
-     *         If the receiver is null, all the interceptors will be skipped.
+     *         For method calls on a null receiver, the receiver is substituted with
+ *         {@link org.codehaus.groovy.runtime.NullObject#getNullObject()} before interceptors are invoked.
+ *         For property, attribute, and array access on a null receiver, interceptors receive {@code null} directly.
      *     </dd>
      *     <dt>method</dt>
      *     <dd>

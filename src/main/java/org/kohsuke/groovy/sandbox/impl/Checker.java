@@ -26,6 +26,7 @@ import org.codehaus.groovy.classgen.asm.UnaryExpressionHelper;
 import org.codehaus.groovy.reflection.ParameterTypes;
 import org.codehaus.groovy.runtime.InvokerHelper;
 import org.codehaus.groovy.runtime.MetaClassHelper;
+import org.codehaus.groovy.runtime.NullObject;
 import org.codehaus.groovy.runtime.ResourceGroovyMethods;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
 import org.codehaus.groovy.runtime.StringGroovyMethods;
@@ -172,7 +173,14 @@ public class Checker {
                 only at the code generation time, I can't get the access to it.
 
                 So here we are faking it by creating a new CallSite object.
+
+                SECURITY-3931: Substitute NullObject for null receivers so the interceptor chain
+                sees a typed receiver and can enforce whitelist checks, rather than letting null
+                fall through.
              */
+            if (_receiver == null) {
+                _receiver = NullObject.getNullObject();
+            }
             return new VarArgInvokerChain(_receiver) {
                 public Object call(Object receiver, String method, Object... args) throws Throwable {
                     if (chain.hasNext())
