@@ -855,7 +855,16 @@ public class Checker {
                 final Object assignableExp = exp;
                 return () -> assignableExp;
             } else if (clazz.isInterface()) {
+                boolean staticDispatch = exp instanceof Class;
+                Class<?> receiverType = staticDispatch ? (Class<?>) exp : exp.getClass();
                 for (Method m : clazz.getMethods()) {
+                    // the null-argument precheck cannot tell which inherited overload the proxy would dispatch to at
+                    // runtime, so reject the coercion rather than vet the wrong one.
+                    if (m.getParameterTypes().length > 0 && hasInheritedOverload(receiverType, m.getName(), staticDispatch)) {
+                        throw new SecurityException("Rejecting coercion of " + receiverType.getName()
+                                + " to interface " + clazz.getName() + " because " + (staticDispatch ? "static" : "instance")
+                                + " method " + m.getName() + " has an inherited overload");
+                    }
                     Object[] args = new Object[m.getParameterTypes().length];
                     for (int i = 0; i < args.length; i++) {
                         args[i] = getDefaultValue(m.getParameterTypes()[i]);
@@ -1005,6 +1014,16 @@ public class Checker {
     @SuppressWarnings("unchecked")
     private static <T> T getDefaultValue(Class<T> clazz) {
         return (T) Array.get(Array.newInstance(clazz, 1), 0);
+    }
+
+    /** Whether {@code receiver} has a method of the given name and staticness inherited from a supertype. */
+    private static boolean hasInheritedOverload(Class<?> receiver, String name, boolean staticMethod) {
+        for (Method m : receiver.getMethods()) {
+            if (Modifier.isStatic(m.getModifiers()) == staticMethod && m.getName().equals(name) && m.getDeclaringClass() != receiver) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
