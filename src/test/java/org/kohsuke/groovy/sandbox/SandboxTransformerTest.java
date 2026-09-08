@@ -46,8 +46,10 @@ import java.util.TreeSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.codehaus.groovy.runtime.typehandling.GroovyCastException;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.codehaus.groovy.control.customizers.ImportCustomizer;
 import org.codehaus.groovy.runtime.ProxyGeneratorAdapter;
@@ -1668,6 +1670,79 @@ public class SandboxTransformerTest {
                 "  }\n" +
                 "}\n" +
                 "new Test([:]).map\n");
+    }
+
+    // Base with an inherited dangerous overload
+    public static class InheritedOverloadBase {
+        public static final AtomicBoolean STATIC_OVERLOAD_INVOKED = new AtomicBoolean();
+        public static Object overloaded(List command) {
+            STATIC_OVERLOAD_INVOKED.set(true);
+            return "list-overload";
+        }
+    }
+
+    public static class InstanceOverloadBase {
+        public static final AtomicBoolean INSTANCE_OVERLOAD_INVOKED = new AtomicBoolean();
+        public Object overloaded(List command) {
+            INSTANCE_OVERLOAD_INVOKED.set(true);
+            return "instance-list-overload";
+        }
+    }
+
+    @Issue("SECURITY-3929")
+    @Test public void interfaceCoercionCannotReachUncheckedInheritedOverload() throws Exception {
+        InheritedOverloadBase.STATIC_OVERLOAD_INVOKED.set(false);
+        // The precheck only vets the harmless overloaded(Integer), the coercion must be rejected rather than let the
+        // proxy dispatch to the inherited overloaded(List) unchecked.
+        sandboxedEval(
+                "class Facade extends SandboxTransformerTest.InheritedOverloadBase {\n" +
+                "  static Object overloaded(Integer command) { return 'harmless' }\n" +
+                "}\n" +
+                "interface Coerced { Object overloaded(Object command) }\n" +
+                "def proxy = Facade as Coerced\n" +
+                "proxy.overloaded(['echo', 'hi'])\n",
+                ShouldFail.class,
+                e -> {
+                    assertThat(e, instanceOf(SecurityException.class));
+                    assertThat(e.getMessage(), containsString("has an inherited overload"));
+                });
+        assertFalse(InheritedOverloadBase.STATIC_OVERLOAD_INVOKED.get());
+    }
+
+    public static abstract class AbstractWithInheritedOverload extends InstanceOverloadBase {
+        public abstract Object method1();
+        public abstract Object method2();
+    }
+
+    @Issue("SECURITY-3929")
+    @Test public void abstractClassCoercionCannotUseInstanceAsSource() throws Exception {
+        // Abstract-class coercion only accepts Closure/Map as source.
+        // A plain instance is rejected by Groovy itself with GroovyCastException before the sandbox
+        // pre-check is involved, so no inherited-overload mismatch is possible via this path.
+        sandboxedEval(
+                "def obj = new SandboxTransformerTest.InstanceOverloadBase()\n" +
+                "obj as SandboxTransformerTest.AbstractWithInheritedOverload\n",
+                ShouldFail.class,
+                e -> assertThat(e, instanceOf(GroovyCastException.class)));
+    }
+
+    @Issue("SECURITY-3929")
+    @Test public void interfaceCoercionInstanceReceiverCanReachUncheckedInheritedOverload() throws Exception {
+        InstanceOverloadBase.INSTANCE_OVERLOAD_INVOKED.set(false);
+        sandboxedEval(
+                "class InstanceFacade extends SandboxTransformerTest.InstanceOverloadBase {\n" +
+                "  Object overloaded(Integer command) { return 'harmless' }\n" +
+                "}\n" +
+                "interface Coerced { Object overloaded(Object command) }\n" +
+                "def obj = new InstanceFacade()\n" +
+                "def proxy = obj as Coerced\n" +
+                "proxy.overloaded(['echo', 'hi'])\n",
+                ShouldFail.class,
+                e -> {
+                    assertThat(e, instanceOf(SecurityException.class));
+                    assertThat(e.getMessage(), containsString("has an inherited overload"));
+                });
+        assertFalse(InstanceOverloadBase.INSTANCE_OVERLOAD_INVOKED.get());
     }
 
 }
